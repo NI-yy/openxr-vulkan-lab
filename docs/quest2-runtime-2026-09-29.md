@@ -1,0 +1,254 @@
+# Quest 2 実機環境の記録（2026-09-29）
+
+## 端末・動作確認
+
+- 端末: Meta Quest 2（`ro.product.model=Quest 2`、`ro.product.device=hollywood`）
+- OS: Android 14（API 34）
+- ビルド番号: `52242990035800150`
+- セキュリティパッチ: `2026-06-04`
+- SoC: `SM8250`
+- `hello_xr` Vulkan 版をビルド・インストール・起動し、青い立方体を実機で目視確認。
+
+## OpenXR
+
+- Runtime: `Oculus`、バージョン `207.299.0`（Khronos `list_json` の `xrGetInstanceProperties` による取得）
+- System name: `Oculus Generic`
+- 公開 Instance 拡張: 95 件。`XR_KHR_vulkan_enable` と `XR_KHR_vulkan_enable2` を含む。
+- 取得方法: Khronos `OpenXR-SDK-Source` commit `3ed64d0f9bb680f24b80a085091e5c8fab38f7b7` の `src/tests/list_json` を `assembleDebug` でビルドし、Quest 2 で実行。`adb logcat -d -v brief -s list_json` から取得。
+- 注: `list_json` は `XR_EXT_debug_utils`（Loader 提供）と、ヘッダーにない非公開拡張を一覧から除く。以下は同サンプルが出力する公開拡張一覧であり、利用可能な機能を全て使用できることまでは示さない。
+
+### OpenXR 公開拡張（95 件）
+
+```text
+XR_KHR_android_create_instance
+XR_KHR_android_surface_swapchain
+XR_KHR_android_thread_settings
+XR_KHR_composition_layer_color_scale_bias
+XR_KHR_composition_layer_cube
+XR_KHR_composition_layer_cylinder
+XR_KHR_composition_layer_depth
+XR_KHR_composition_layer_equirect2
+XR_KHR_convert_timespec_time
+XR_KHR_maintenance1
+XR_KHR_opengl_es_enable
+XR_KHR_visibility_mask
+XR_KHR_vulkan_enable
+XR_KHR_vulkan_enable2
+XR_EXT_active_action_set_priority
+XR_EXT_composition_layer_inverted_alpha
+XR_EXT_frame_synthesis
+XR_EXT_future
+XR_EXT_hand_interaction
+XR_EXT_hand_joints_motion_range
+XR_EXT_hand_tracking
+XR_EXT_hand_tracking_data_source
+XR_EXT_haptic_parametric
+XR_EXT_local_floor
+XR_EXT_palm_pose
+XR_EXT_performance_settings
+XR_EXT_spatial_anchor
+XR_EXT_spatial_entity
+XR_EXT_spatial_persistence
+XR_EXT_spatial_persistence_operations
+XR_EXT_user_presence
+XR_FB_android_surface_swapchain_create
+XR_FB_body_tracking
+XR_FB_color_space
+XR_FB_composition_layer_alpha_blend
+XR_FB_composition_layer_depth_test
+XR_FB_composition_layer_image_layout
+XR_FB_composition_layer_secure_content
+XR_FB_composition_layer_settings
+XR_FB_display_refresh_rate
+XR_FB_face_tracking
+XR_FB_face_tracking2
+XR_FB_foveation
+XR_FB_foveation_configuration
+XR_FB_foveation_vulkan
+XR_FB_hand_tracking_aim
+XR_FB_hand_tracking_capsules
+XR_FB_hand_tracking_mesh
+XR_FB_haptic_amplitude_envelope
+XR_FB_haptic_pcm
+XR_FB_passthrough
+XR_FB_render_model
+XR_FB_scene
+XR_FB_scene_capture
+XR_FB_space_warp
+XR_FB_spatial_entity
+XR_FB_spatial_entity_container
+XR_FB_spatial_entity_query
+XR_FB_spatial_entity_sharing
+XR_FB_spatial_entity_storage
+XR_FB_spatial_entity_storage_batch
+XR_FB_spatial_entity_user
+XR_FB_swapchain_update_state
+XR_FB_swapchain_update_state_android_surface
+XR_FB_swapchain_update_state_opengl_es
+XR_FB_swapchain_update_state_vulkan
+XR_FB_touch_controller_pro
+XR_FB_touch_controller_proximity
+XR_FB_triangle_mesh
+XR_LOGITECH_mx_ink_stylus_interaction
+XR_META_automatic_layer_filter
+XR_META_body_tracking_calibration
+XR_META_body_tracking_fidelity
+XR_META_body_tracking_full_body
+XR_META_detached_controllers
+XR_META_face_tracking_visemes
+XR_META_hand_tracking_frequency_hint
+XR_META_hand_tracking_microgestures
+XR_META_hand_tracking_unextrapolated_poses
+XR_META_headset_id
+XR_META_passthrough_color_lut
+XR_META_passthrough_layer_resumed_event
+XR_META_passthrough_preferences
+XR_META_performance_metrics
+XR_META_recommended_layer_resolution
+XR_META_simultaneous_hands_and_controllers
+XR_META_spatial_entity_discovery
+XR_META_spatial_entity_group_sharing
+XR_META_spatial_entity_persistence
+XR_META_spatial_entity_sharing
+XR_META_tile_properties_hint
+XR_META_touch_controller_plus
+XR_META_virtual_keyboard
+XR_META_vulkan_swapchain_create_info
+XR_MSFT_hand_interaction
+```
+
+## Vulkan
+
+- Loader が報告した Instance API バージョン: `1.3.0`
+- 物理デバイス: `Adreno (TM) 650`（1 台）
+- 物理デバイスが報告した Vulkan API バージョン: `1.1.295`
+- Driver: `Qualcomm Technologies Inc. Adreno Vulkan Driver`
+- Driver info: `Driver Build: 274d25476a, Iae7cef94b0, 1745012382`、`Date: 04/19/25`、`Compiler Version: E031.50.02.00`
+- `driverVersion` 生値: `2150838272`、Vendor ID: `0x5143`、Device ID: `0x6050002`
+- 取得方法: [`tools/vulkan_probe.cpp`](../tools/vulkan_probe.cpp) を NDK 23.2.8568313 の `aarch64-linux-android31-clang++` でビルドし、`adb shell /data/local/tmp/vulkan_probe` で実機上の Vulkan API を呼び出した。
+- 注: Loader の Instance API バージョンと GPU の API バージョンは別の値。拡張一覧は列挙結果であり、実際に有効化・動作検証した機能の一覧ではない。
+
+### Vulkan Instance 拡張（14 件、名前:specVersion）
+
+```text
+VK_KHR_surface:25
+VK_KHR_surface_protected_capabilities:1
+VK_KHR_android_surface:6
+VK_EXT_swapchain_colorspace:4
+VK_KHR_get_surface_capabilities2:1
+VK_GOOGLE_surfaceless_query:2
+VK_EXT_surface_maintenance1:1
+VK_EXT_debug_report:10
+VK_KHR_get_physical_device_properties2:2
+VK_KHR_external_semaphore_capabilities:1
+VK_KHR_external_memory_capabilities:1
+VK_KHR_device_group_creation:1
+VK_EXT_debug_utils:2
+VK_KHR_external_fence_capabilities:1
+```
+
+### Vulkan Device 拡張（101 件、名前:specVersion）
+
+```text
+VK_KHR_incremental_present:2
+VK_KHR_shared_presentable_image:1
+VK_GOOGLE_display_timing:1
+VK_EXT_swapchain_maintenance1:1
+VK_EXT_subgroup_size_control:2
+VK_KHR_external_memory:1
+VK_EXT_pipeline_creation_feedback:1
+VK_KHR_shader_float16_int8:1
+VK_KHR_get_memory_requirements2:1
+VK_KHR_copy_commands2:1
+VK_KHR_spirv_1_4:1
+VK_EXT_fragment_density_map:2
+VK_KHR_external_semaphore_fd:1
+VK_QCOM_render_pass_store_ops:2
+VK_EXT_astc_decode_mode:1
+VK_KHR_external_memory_fd:1
+VK_QCOM_render_pass_shader_resolve:4
+VK_KHR_maintenance1:2
+VK_KHR_maintenance2:1
+VK_KHR_maintenance3:1
+VK_KHR_separate_depth_stencil_layouts:1
+VK_EXT_image_robustness:1
+VK_KHR_buffer_device_address:1
+VK_EXT_extended_dynamic_state:1
+VK_EXT_queue_family_foreign:1
+VK_KHR_bind_memory2:1
+VK_KHR_external_semaphore:1
+VK_KHR_shader_terminate_invocation:1
+VK_QCOM_fragment_density_map_offset:2
+VK_EXT_scalar_block_layout:1
+VK_KHR_sampler_ycbcr_conversion:14
+VK_EXT_vertex_attribute_divisor:3
+VK_KHR_variable_pointers:1
+VK_QCOM_multiview_per_view_viewports:1
+VK_KHR_push_descriptor:2
+VK_KHR_timeline_semaphore:2
+VK_EXT_device_memory_report:2
+VK_KHR_imageless_framebuffer:1
+VK_KHR_device_group:4
+VK_EXT_device_fault:2
+VK_KHR_relaxed_block_layout:1
+VK_KHR_external_fence:1
+VK_KHR_shader_non_semantic_info:1
+VK_EXT_shader_atomic_float:1
+VK_EXT_custom_border_color:12
+VK_EXT_host_query_reset:1
+VK_EXT_index_type_uint8:1
+VK_KHR_multiview:1
+VK_KHR_storage_buffer_storage_class:1
+VK_EXT_fragment_density_map2:1
+VK_QCOM_rotated_copy_commands:2
+VK_KHR_shader_subgroup_extended_types:1
+VK_EXT_external_memory_acquire_unmodified:1
+VK_EXT_private_data:1
+VK_EXT_pipeline_creation_cache_control:3
+VK_EXT_robustness2:1
+VK_EXT_shader_module_identifier:1
+VK_EXT_global_priority_query:1
+VK_EXT_separate_stencil_usage:1
+VK_EXT_vertex_input_dynamic_state:2
+VK_IMG_filter_cubic:1
+VK_EXT_filter_cubic:3
+VK_EXT_shader_subgroup_vote:1
+VK_QCOM_tile_properties:1
+VK_EXT_pipeline_robustness:1
+VK_KHR_image_format_list:1
+VK_EXT_sampler_filter_minmax:2
+VK_KHR_16bit_storage:1
+VK_KHR_pipeline_executable_properties:1
+VK_EXT_shader_demote_to_helper_invocation:1
+VK_QCOM_render_pass_transform:4
+VK_KHR_create_renderpass2:1
+VK_EXT_transform_feedback:1
+VK_EXT_blend_operation_advanced:2
+VK_EXT_provoking_vertex:1
+VK_QCOM_multiview_per_view_render_areas:1
+VK_EXT_shader_subgroup_ballot:1
+VK_KHR_depth_stencil_resolve:1
+VK_KHR_shader_float_controls:4
+VK_EXT_texture_compression_astc_hdr:1
+VK_EXT_global_priority:2
+VK_KHR_shader_draw_parameters:1
+VK_KHR_vulkan_memory_model:3
+VK_EXT_descriptor_indexing:2
+VK_EXT_depth_clip_enable:1
+VK_KHR_synchronization2:1
+VK_EXT_line_rasterization:1
+VK_KHR_fragment_shading_rate:2
+VK_KHR_descriptor_update_template:1
+VK_KHR_draw_indirect_count:1
+VK_KHR_driver_properties:1
+VK_KHR_uniform_buffer_standard_layout:1
+VK_ANDROID_external_memory_android_hardware_buffer:5
+VK_EXT_extended_dynamic_state2:1
+VK_KHR_dedicated_allocation:3
+VK_EXT_primitive_topology_list_restart:1
+VK_KHR_global_priority:1
+VK_EXT_sample_locations:1
+VK_KHR_swapchain:70
+VK_KHR_sampler_mirror_clamp_to_edge:3
+VK_KHR_external_fence_fd:1
+```
