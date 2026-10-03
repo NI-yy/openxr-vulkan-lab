@@ -5,11 +5,22 @@
 #include <openxr/openxr_platform.h>
 
 #include <cstring>
+#include <array>
 #include <vector>
 
 namespace {
 constexpr char kTag[] = "OpenXRVulkanLab";
 constexpr XrViewConfigurationType kView = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+constexpr uint32_t kEyeCount = 2;
+
+struct EyeSwapchain {
+    XrSwapchain handle = XR_NULL_HANDLE;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::vector<XrSwapchainImageVulkan2KHR> images;
+    std::vector<VkImageView> views;
+    std::vector<VkFramebuffer> framebuffers;
+};
 
 struct State {
     XrInstance instance = XR_NULL_HANDLE;
@@ -17,7 +28,16 @@ struct State {
     XrSession session = XR_NULL_HANDLE;
     XrSpace space = XR_NULL_HANDLE;
     VkInstance vkInstance = VK_NULL_HANDLE;
+    VkPhysicalDevice vkPhysical = VK_NULL_HANDLE;
     VkDevice vkDevice = VK_NULL_HANDLE;
+    VkQueue vkQueue = VK_NULL_HANDLE;
+    uint32_t graphicsFamily = 0;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    VkFence renderFence = VK_NULL_HANDLE;
+    std::array<EyeSwapchain, kEyeCount> eyes;
+    std::array<XrView, kEyeCount> views{};
     XrEnvironmentBlendMode blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     bool running = false;
     bool exiting = false;
@@ -168,6 +188,7 @@ bool InitSession(State& state) {
     VkPhysicalDevice physical = VK_NULL_HANDLE;
     if (!XrOk("xrGetVulkanGraphicsDevice2KHR", graphicsDeviceFn(
             state.instance, &getInfo, &physical))) return false;
+    state.vkPhysical = physical;
     uint32_t familyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, nullptr);
     if (familyCount == 0) {
@@ -204,6 +225,8 @@ bool InitSession(State& state) {
     if (!XrOk("xrCreateVulkanDeviceKHR", deviceFn(
             state.instance, &xrDeviceInfo, &state.vkDevice, &vkResult)) ||
         !VkOk("xrCreateVulkanDeviceKHR/Vulkan", vkResult)) return false;
+    state.graphicsFamily = graphicsFamily;
+    vkGetDeviceQueue(state.vkDevice, graphicsFamily, 0, &state.vkQueue);
 
     XrGraphicsBindingVulkan2KHR binding{XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
     binding.instance = state.vkInstance;
@@ -239,6 +262,173 @@ bool InitSession(State& state) {
         if (mode == XR_ENVIRONMENT_BLEND_MODE_OPAQUE) state.blend = mode;
     }
     __android_log_print(ANDROID_LOG_INFO, kTag, "Environment blend mode: %d", state.blend);
+    return true;
+}
+
+bool InitSwapchains(State& state) {
+    uint32_t viewCount = 0;
+    if (!XrOk("xrEnumerateViewConfigurationViews(count)", xrEnumerateViewConfigurationViews(
+            state.instance, state.system, kView, 0, &viewCount, nullptr))) return false;
+    if (viewCount != kEyeCount) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "Expected two stereo views; got %u", viewCount);
+        return false;
+    }
+    std::array<XrViewConfigurationView, kEyeCount> configViews{};
+    for (auto& view : configViews) view.type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
+    if (!XrOk("xrEnumerateViewConfigurationViews(list)", xrEnumerateViewConfigurationViews(
+            state.instance, state.system, kView, viewCount, &viewCount, configViews.data()))) return false;
+
+    uint32_t formatCount = 0;
+    if (!XrOk("xrEnumerateSwapchainFormats(count)", xrEnumerateSwapchainFormats(
+            state.session, 0, &formatCount, nullptr))) return false;
+    std::vector<int64_t> formats(formatCount);
+    if (!XrOk("xrEnumerateSwapchainFormats(list)", xrEnumerateSwapchainFormats(
+            state.session, formatCount, &formatCount, formats.data()))) return false;
+    VkFormat colorFormat = VK_FORMAT_UNDEFINED;
+    for (VkFormat preferred : {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_SRGB,
+                               VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM}) {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(state.vkPhysical, preferred, &properties);
+        if (!(properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) continue;
+        for (int64_t offered : formats) {
+            if (offered == preferred) {
+                colorFormat = preferred;
+                break;
+            }
+        }
+        if (colorFormat != VK_FORMAT_UNDEFINED) break;
+    }
+    if (colorFormat == VK_FORMAT_UNDEFINED) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "No supported RGBA color attachment format");
+        return false;
+    }
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Swapchain format: %d", colorFormat);
+
+    VkAttachmentDescription attachment{};
+    attachment.format = colorFormat;
+    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    // OpenXR supplies acquired color images in a layout compatible with this layout.
+    attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkAttachmentReference colorReference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorReference;
+    VkRenderPassCreateInfo renderPassInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &attachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    if (!VkOk("vkCreateRenderPass", vkCreateRenderPass(
+            state.vkDevice, &renderPassInfo, nullptr, &state.renderPass))) return false;
+
+    for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
+        auto& eye = state.eyes[eyeIndex];
+        eye.width = configViews[eyeIndex].recommendedImageRectWidth;
+        eye.height = configViews[eyeIndex].recommendedImageRectHeight;
+        if (eye.width == 0 || eye.height == 0) return false;
+        XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        createInfo.format = colorFormat;
+        createInfo.sampleCount = 1;
+        createInfo.width = eye.width;
+        createInfo.height = eye.height;
+        createInfo.faceCount = 1;
+        createInfo.arraySize = 1;
+        createInfo.mipCount = 1;
+        if (!XrOk("xrCreateSwapchain", xrCreateSwapchain(
+                state.session, &createInfo, &eye.handle))) return false;
+        uint32_t imageCount = 0;
+        if (!XrOk("xrEnumerateSwapchainImages(count)", xrEnumerateSwapchainImages(
+                eye.handle, 0, &imageCount, nullptr))) return false;
+        if (imageCount == 0) return false;
+        eye.images.resize(imageCount);
+        eye.views.resize(imageCount, VK_NULL_HANDLE);
+        eye.framebuffers.resize(imageCount, VK_NULL_HANDLE);
+        for (auto& image : eye.images) image.type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR;
+        if (!XrOk("xrEnumerateSwapchainImages(list)", xrEnumerateSwapchainImages(
+                eye.handle, imageCount, &imageCount,
+                reinterpret_cast<XrSwapchainImageBaseHeader*>(eye.images.data())))) return false;
+        for (uint32_t imageIndex = 0; imageIndex < imageCount; ++imageIndex) {
+            VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            viewInfo.image = eye.images[imageIndex].image;
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = colorFormat;
+            viewInfo.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                                   VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            if (!VkOk("vkCreateImageView", vkCreateImageView(
+                    state.vkDevice, &viewInfo, nullptr, &eye.views[imageIndex]))) return false;
+            VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+            framebufferInfo.renderPass = state.renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = &eye.views[imageIndex];
+            framebufferInfo.width = eye.width;
+            framebufferInfo.height = eye.height;
+            framebufferInfo.layers = 1;
+            if (!VkOk("vkCreateFramebuffer", vkCreateFramebuffer(
+                    state.vkDevice, &framebufferInfo, nullptr,
+                    &eye.framebuffers[imageIndex]))) return false;
+        }
+        __android_log_print(ANDROID_LOG_INFO, kTag, "Eye %u swapchain: %ux%u, %u images",
+                            eyeIndex, eye.width, eye.height, imageCount);
+    }
+
+    VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = state.graphicsFamily;
+    if (!VkOk("vkCreateCommandPool", vkCreateCommandPool(
+            state.vkDevice, &poolInfo, nullptr, &state.commandPool))) return false;
+    VkCommandBufferAllocateInfo allocateInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    allocateInfo.commandPool = state.commandPool;
+    allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocateInfo.commandBufferCount = 1;
+    if (!VkOk("vkAllocateCommandBuffers", vkAllocateCommandBuffers(
+            state.vkDevice, &allocateInfo, &state.commandBuffer))) return false;
+    VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    if (!VkOk("vkCreateFence", vkCreateFence(
+            state.vkDevice, &fenceInfo, nullptr, &state.renderFence))) return false;
+    for (auto& view : state.views) view.type = XR_TYPE_VIEW;
+    return true;
+}
+
+bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex) {
+    if (imageIndex >= eye.framebuffers.size()) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "Invalid swapchain image index %u", imageIndex);
+        return false;
+    }
+    if (!VkOk("vkResetCommandBuffer", vkResetCommandBuffer(state.commandBuffer, 0))) return false;
+    VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (!VkOk("vkBeginCommandBuffer", vkBeginCommandBuffer(state.commandBuffer, &beginInfo))) return false;
+    VkClearValue clear{};
+    clear.color.float32[0] = 0.02f;
+    clear.color.float32[1] = 0.12f;
+    clear.color.float32[2] = 0.55f;
+    clear.color.float32[3] = 1.0f;
+    VkRenderPassBeginInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    passInfo.renderPass = state.renderPass;
+    passInfo.framebuffer = eye.framebuffers[imageIndex];
+    passInfo.renderArea.extent = {eye.width, eye.height};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &clear;
+    vkCmdBeginRenderPass(state.commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdEndRenderPass(state.commandBuffer);
+    if (!VkOk("vkEndCommandBuffer", vkEndCommandBuffer(state.commandBuffer))) return false;
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &state.commandBuffer;
+    if (!VkOk("vkQueueSubmit", vkQueueSubmit(state.vkQueue, 1, &submit, state.renderFence))) return false;
+    // OpenXR may use this queue in acquire/release/endFrame. All calls stay on this thread,
+    // and the GPU work is finished before the image is released to the runtime.
+    if (!VkOk("vkWaitForFences", vkWaitForFences(
+            state.vkDevice, 1, &state.renderFence, VK_TRUE, UINT64_MAX))) return false;
+    if (!VkOk("vkResetFences", vkResetFences(state.vkDevice, 1, &state.renderFence))) return false;
     return true;
 }
 
@@ -288,10 +478,60 @@ bool RunFrame(State& state) {
     if (!XrOk("xrWaitFrame", xrWaitFrame(state.session, &wait, &frame))) return false;
     XrFrameBeginInfo begin{XR_TYPE_FRAME_BEGIN_INFO};
     if (!XrOk("xrBeginFrame", xrBeginFrame(state.session, &begin))) return false;
+    std::array<XrCompositionLayerProjectionView, kEyeCount> layerViews;
+    XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    const XrCompositionLayerBaseHeader* layers[] = {
+        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
+    if (frame.shouldRender) {
+        XrViewLocateInfo locate{XR_TYPE_VIEW_LOCATE_INFO};
+        locate.viewConfigurationType = kView;
+        locate.displayTime = frame.predictedDisplayTime;
+        locate.space = state.space;
+        XrViewState viewState{XR_TYPE_VIEW_STATE};
+        uint32_t located = 0;
+        if (!XrOk("xrLocateViews", xrLocateViews(state.session, &locate, &viewState,
+                kEyeCount, &located, state.views.data()))) return false;
+        if (located != kEyeCount) {
+            __android_log_print(ANDROID_LOG_ERROR, kTag, "Expected two located views; got %u", located);
+            return false;
+        }
+        const XrViewStateFlags valid = XR_VIEW_STATE_POSITION_VALID_BIT |
+                                       XR_VIEW_STATE_ORIENTATION_VALID_BIT;
+        if ((viewState.viewStateFlags & valid) == valid) {
+            for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
+                auto& eye = state.eyes[eyeIndex];
+                uint32_t imageIndex = 0;
+                XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+                if (!XrOk("xrAcquireSwapchainImage", xrAcquireSwapchainImage(
+                        eye.handle, &acquire, &imageIndex))) return false;
+                XrSwapchainImageWaitInfo waitImage{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                waitImage.timeout = XR_INFINITE_DURATION;
+                if (!XrOk("xrWaitSwapchainImage", xrWaitSwapchainImage(
+                        eye.handle, &waitImage))) return false;
+                if (!RenderEye(state, eye, imageIndex)) return false;
+                XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                if (!XrOk("xrReleaseSwapchainImage", xrReleaseSwapchainImage(
+                        eye.handle, &release))) return false;
+                auto& projection = layerViews[eyeIndex];
+                projection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                projection.pose = state.views[eyeIndex].pose;
+                projection.fov = state.views[eyeIndex].fov;
+                projection.subImage.swapchain = eye.handle;
+                projection.subImage.imageRect.extent = {
+                    static_cast<int32_t>(eye.width), static_cast<int32_t>(eye.height)};
+            }
+            layer.space = state.space;
+            layer.viewCount = kEyeCount;
+            layer.views = layerViews.data();
+        }
+    }
     XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};
     end.displayTime = frame.predictedDisplayTime;
     end.environmentBlendMode = state.blend;
-    // No swapchains or composition layers until the rendering issue.
+    if (layer.views != nullptr) {
+        end.layerCount = 1;
+        end.layers = layers;
+    }
     if (!XrOk("xrEndFrame", xrEndFrame(state.session, &end))) return false;
     ++state.frames;
     if (state.frames == 1 || state.frames % 120 == 0) {
@@ -302,6 +542,19 @@ bool RunFrame(State& state) {
 }
 
 void Shutdown(State& state) {
+    if (state.vkDevice != VK_NULL_HANDLE) VkOk("vkDeviceWaitIdle", vkDeviceWaitIdle(state.vkDevice));
+    if (state.renderFence != VK_NULL_HANDLE) vkDestroyFence(state.vkDevice, state.renderFence, nullptr);
+    if (state.commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(state.vkDevice, state.commandPool, nullptr);
+    for (auto& eye : state.eyes) {
+        for (auto framebuffer : eye.framebuffers) {
+            if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(state.vkDevice, framebuffer, nullptr);
+        }
+        for (auto view : eye.views) {
+            if (view != VK_NULL_HANDLE) vkDestroyImageView(state.vkDevice, view, nullptr);
+        }
+        if (eye.handle != XR_NULL_HANDLE) XrOk("xrDestroySwapchain", xrDestroySwapchain(eye.handle));
+    }
+    if (state.renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(state.vkDevice, state.renderPass, nullptr);
     if (state.space != XR_NULL_HANDLE) XrOk("xrDestroySpace", xrDestroySpace(state.space));
     if (state.session != XR_NULL_HANDLE) XrOk("xrDestroySession", xrDestroySession(state.session));
     if (state.vkDevice != VK_NULL_HANDLE) vkDestroyDevice(state.vkDevice, nullptr);
@@ -317,6 +570,7 @@ void android_main(android_app* app) {
     State state;
     bool healthy = InitInstance(app, state);
     if (healthy) healthy = InitSession(state);
+    if (healthy) healthy = InitSwapchains(state);
     if (!healthy) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "Initialization failed; finishing activity");
         ANativeActivity_finish(app->activity);
