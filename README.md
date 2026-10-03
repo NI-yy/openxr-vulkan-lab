@@ -1,6 +1,6 @@
 # openxr-vulkan-lab
 
-Meta Quest 2 向けの OpenXR / Vulkan ネイティブアプリの実験用リポジトリです。現段階のアプリは描画せず、起動時に OpenXR Runtime と Vulkan Loader を調べ、Android の終了イベントまで待ってログを残します。
+Meta Quest 2 向けの OpenXR / Vulkan ネイティブアプリの実験用リポジトリです。現段階のアプリは Vulkan を使って OpenXR セッションと LOCAL 参照空間を作り、セッション状態に従ってフレームループを実行します。まだスワップチェーンや描画レイヤーはないため、映像は描画しません。
 
 ## 環境
 
@@ -34,7 +34,11 @@ $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 & $adb -d logcat -d -s OpenXRVulkanLab:I '*:S'
 ```
 
-`native app started`、`Vulkan loader: result=0`、`OpenXR runtime: Oculus`、`xrGetSystem: 0` を確認します。終了を確認するには、Quest 2 でアプリを閉じるか、次のコマンドで戻るキーを送って再度 `logcat` を取得します。`back pressed; finishing activity`、`activity destroyed`、`native app exited` が出ます。画面描画はまだ実装していません。
+`OpenXR extension XR_KHR_vulkan_enable2: available`、`OpenXR runtime: Oculus`、`OpenXR session created`、`LOCAL reference space created`、`OpenXR session started`、`OpenXR frame 1 completed` を確認します。以降は 120 フレームごとに進行を記録します。スワップチェーンがないので `xrEndFrame` にはレイヤーを渡しません。
+
+セッションの中断・再開は、アプリ起動中にヘッドセットをスリープ・復帰させて確認できます。ログの `OpenXR session state: 6`（STOPPING）と `OpenXR session stopped` の後、`OpenXR session state: 2`（READY）と `OpenXR session started`、フレーム番号の進行を確認してください。端末側がアクティビティを破棄した場合は再起動になり、`native app started` が再度出ます。アクティビティが保持された場合は同じプロセス・同じセッションが再開します。
+
+終了を確認するには、Quest 2 でアプリを閉じるか、次のコマンドで戻るキーを送って再度 `logcat` を取得します。`back pressed; finishing activity`、`native app exited` が出ます。Android または Runtime の終了要求でも同様にリソースを破棄します。
 
 ```powershell
 & $adb -d shell input keyevent 4
