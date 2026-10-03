@@ -6,12 +6,120 @@
 
 #include <cstring>
 #include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
+
+#include "cube_shaders.h"
 
 namespace {
 constexpr char kTag[] = "OpenXRVulkanLab";
 constexpr XrViewConfigurationType kView = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 constexpr uint32_t kEyeCount = 2;
+constexpr float kNear = 0.05f;
+constexpr float kFar = 100.0f;
+
+struct Mat4 { float v[16]{}; };
+struct Vertex { float position[3]; float color[3]; };
+struct PushConstants { Mat4 mvp; };
+
+// A 40 cm cube centered at the model origin. CubeModel places it two meters
+// in front of the initial LOCAL origin. Each face has four vertices so that
+// adjacent faces can have different colors.
+constexpr std::array<Vertex, 24> kCubeVertices{{
+    // Front (+Z), red
+    {{-0.2f, -0.2f,  0.2f}, {1.0f, 0.25f, 0.2f}},
+    {{ 0.2f, -0.2f,  0.2f}, {1.0f, 0.25f, 0.2f}},
+    {{ 0.2f,  0.2f,  0.2f}, {1.0f, 0.25f, 0.2f}},
+    {{-0.2f,  0.2f,  0.2f}, {1.0f, 0.25f, 0.2f}},
+
+    // Back (-Z), green
+    {{ 0.2f, -0.2f, -0.2f}, {0.2f, 0.9f, 0.35f}},
+    {{-0.2f, -0.2f, -0.2f}, {0.2f, 0.9f, 0.35f}},
+    {{-0.2f,  0.2f, -0.2f}, {0.2f, 0.9f, 0.35f}},
+    {{ 0.2f,  0.2f, -0.2f}, {0.2f, 0.9f, 0.35f}},
+
+    // Left (-X), cyan
+    {{-0.2f, -0.2f, -0.2f}, {0.2f, 0.7f, 1.0f}},
+    {{-0.2f, -0.2f,  0.2f}, {0.2f, 0.7f, 1.0f}},
+    {{-0.2f,  0.2f,  0.2f}, {0.2f, 0.7f, 1.0f}},
+    {{-0.2f,  0.2f, -0.2f}, {0.2f, 0.7f, 1.0f}},
+
+    // Right (+X), yellow
+    {{ 0.2f, -0.2f,  0.2f}, {1.0f, 0.85f, 0.2f}},
+    {{ 0.2f, -0.2f, -0.2f}, {1.0f, 0.85f, 0.2f}},
+    {{ 0.2f,  0.2f, -0.2f}, {1.0f, 0.85f, 0.2f}},
+    {{ 0.2f,  0.2f,  0.2f}, {1.0f, 0.85f, 0.2f}},
+
+    // Top (+Y), purple
+    {{-0.2f,  0.2f,  0.2f}, {0.9f, 0.3f, 1.0f}},
+    {{ 0.2f,  0.2f,  0.2f}, {0.9f, 0.3f, 1.0f}},
+    {{ 0.2f,  0.2f, -0.2f}, {0.9f, 0.3f, 1.0f}},
+    {{-0.2f,  0.2f, -0.2f}, {0.9f, 0.3f, 1.0f}},
+
+    // Bottom (-Y), orange
+    {{-0.2f, -0.2f, -0.2f}, {1.0f, 0.55f, 0.15f}},
+    {{ 0.2f, -0.2f, -0.2f}, {1.0f, 0.55f, 0.15f}},
+    {{ 0.2f, -0.2f,  0.2f}, {1.0f, 0.55f, 0.15f}},
+    {{-0.2f, -0.2f,  0.2f}, {1.0f, 0.55f, 0.15f}},
+}};
+constexpr std::array<uint16_t, 36> kCubeIndices{{
+    0, 1, 2, 2, 3, 0,        // Front
+    4, 5, 6, 6, 7, 4,        // Back
+    8, 9, 10, 10, 11, 8,     // Left
+    12, 13, 14, 14, 15, 12,  // Right
+    16, 17, 18, 18, 19, 16,  // Top
+    20, 21, 22, 22, 23, 20,  // Bottom
+}};
+
+Mat4 Multiply(const Mat4& a, const Mat4& b) {
+    Mat4 result{};
+    for (int col = 0; col < 4; ++col)
+        for (int row = 0; row < 4; ++row)
+            for (int k = 0; k < 4; ++k)
+                result.v[col * 4 + row] += a.v[k * 4 + row] * b.v[col * 4 + k];
+    return result;
+}
+
+Mat4 EyeView(const XrPosef& pose) {
+    const auto& q = pose.orientation;
+    const float xx = q.x*q.x, yy = q.y*q.y, zz = q.z*q.z;
+    const float xy = q.x*q.y, xz = q.x*q.z, yz = q.y*q.z;
+    const float wx = q.w*q.x, wy = q.w*q.y, wz = q.w*q.z;
+    // Inverse of the eye's rigid transform. Columns contain world axes in eye space.
+    Mat4 view{};
+    view.v[0] = 1-2*(yy+zz); view.v[1] = 2*(xy-wz); view.v[2] = 2*(xz+wy);
+    view.v[4] = 2*(xy+wz); view.v[5] = 1-2*(xx+zz); view.v[6] = 2*(yz-wx);
+    view.v[8] = 2*(xz-wy); view.v[9] = 2*(yz+wx); view.v[10] = 1-2*(xx+yy);
+    view.v[12] = -(view.v[0]*pose.position.x + view.v[4]*pose.position.y + view.v[8]*pose.position.z);
+    view.v[13] = -(view.v[1]*pose.position.x + view.v[5]*pose.position.y + view.v[9]*pose.position.z);
+    view.v[14] = -(view.v[2]*pose.position.x + view.v[6]*pose.position.y + view.v[10]*pose.position.z);
+    view.v[15] = 1;
+    return view;
+}
+
+Mat4 Projection(const XrFovf& fov) {
+    const float l = std::tan(fov.angleLeft), r = std::tan(fov.angleRight);
+    const float d = std::tan(fov.angleDown), u = std::tan(fov.angleUp);
+    Mat4 p{};
+    p.v[0] = 2/(r-l);
+    // Vulkan's positive-height viewport points Y down; flip clip-space Y here.
+    p.v[5] = -2/(u-d);
+    p.v[8] = (r+l)/(r-l);
+    p.v[9] = -(u+d)/(u-d);
+    p.v[10] = kFar/(kNear-kFar);
+    p.v[11] = -1;
+    p.v[14] = (kNear*kFar)/(kNear-kFar);
+    return p;
+}
+
+Mat4 CubeModel() {
+    Mat4 m{};
+    m.v[0] = m.v[5] = m.v[10] = m.v[15] = 1;
+    m.v[14] = -2;
+    return m;
+}
 
 struct EyeSwapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -20,6 +128,9 @@ struct EyeSwapchain {
     std::vector<XrSwapchainImageVulkan2KHR> images;
     std::vector<VkImageView> views;
     std::vector<VkFramebuffer> framebuffers;
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkDeviceMemory depthMemory = VK_NULL_HANDLE;
+    VkImageView depthView = VK_NULL_HANDLE;
 };
 
 struct State {
@@ -33,6 +144,11 @@ struct State {
     VkQueue vkQueue = VK_NULL_HANDLE;
     uint32_t graphicsFamily = 0;
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VkBuffer geometryBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory geometryMemory = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
     VkFence renderFence = VK_NULL_HANDLE;
@@ -265,6 +381,162 @@ bool InitSession(State& state) {
     return true;
 }
 
+bool AllocateMemory(State& state, VkMemoryRequirements requirements,
+                    VkMemoryPropertyFlags properties, VkDeviceMemory& memory) {
+    VkPhysicalDeviceMemoryProperties types{};
+    vkGetPhysicalDeviceMemoryProperties(state.vkPhysical, &types);
+    for (uint32_t i = 0; i < types.memoryTypeCount; ++i) {
+        if ((requirements.memoryTypeBits & (1u << i)) &&
+            (types.memoryTypes[i].propertyFlags & properties) == properties) {
+            VkMemoryAllocateInfo info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            info.allocationSize = requirements.size;
+            info.memoryTypeIndex = i;
+            return VkOk("vkAllocateMemory", vkAllocateMemory(state.vkDevice, &info,
+                                                              nullptr, &memory));
+        }
+    }
+    __android_log_print(ANDROID_LOG_ERROR, kTag, "No matching Vulkan memory type");
+    return false;
+}
+
+bool InitGeometry(State& state) {
+    const VkDeviceSize vertexBytes = sizeof(kCubeVertices);
+    const VkDeviceSize indexBytes = sizeof(kCubeIndices);
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = vertexBytes + indexBytes;
+    info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!VkOk("vkCreateBuffer(geometry)", vkCreateBuffer(state.vkDevice, &info,
+                   nullptr, &state.geometryBuffer))) return false;
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(state.vkDevice, state.geometryBuffer, &requirements);
+    if (!AllocateMemory(state, requirements,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            state.geometryMemory)) return false;
+    if (!VkOk("vkBindBufferMemory(geometry)", vkBindBufferMemory(state.vkDevice,
+            state.geometryBuffer, state.geometryMemory, 0))) return false;
+    void* data = nullptr;
+    if (!VkOk("vkMapMemory(geometry)", vkMapMemory(state.vkDevice,
+            state.geometryMemory, 0, info.size, 0, &data))) return false;
+    std::memcpy(data, kCubeVertices.data(), vertexBytes);
+    std::memcpy(static_cast<char*>(data) + vertexBytes, kCubeIndices.data(), indexBytes);
+    vkUnmapMemory(state.vkDevice, state.geometryMemory);
+    return true;
+}
+
+bool InitPipeline(State& state) {
+    VkShaderModule modules[2]{};
+    VkShaderModuleCreateInfo shader{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shader.codeSize = sizeof(kCubeVertexShader);
+    shader.pCode = kCubeVertexShader;
+    if (!VkOk("vkCreateShaderModule(vertex)", vkCreateShaderModule(state.vkDevice,
+            &shader, nullptr, &modules[0]))) return false;
+    shader.codeSize = sizeof(kCubeFragmentShader);
+    shader.pCode = kCubeFragmentShader;
+    if (!VkOk("vkCreateShaderModule(fragment)", vkCreateShaderModule(state.vkDevice,
+            &shader, nullptr, &modules[1]))) {
+        vkDestroyShaderModule(state.vkDevice, modules[0], nullptr);
+        return false;
+    }
+    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants)};
+    VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout.pushConstantRangeCount = 1;
+    layout.pPushConstantRanges = &push;
+    bool ok = VkOk("vkCreatePipelineLayout", vkCreatePipelineLayout(state.vkDevice,
+            &layout, nullptr, &state.pipelineLayout));
+    if (ok) {
+        VkPipelineShaderStageCreateInfo stages[2]{};
+        for (uint32_t i = 0; i < 2; ++i) {
+            stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            stages[i].stage = i == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+            stages[i].module = modules[i];
+            stages[i].pName = "main";
+        }
+        VkVertexInputBindingDescription binding{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
+        VkVertexInputAttributeDescription attributes[2] = {
+            {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)},
+            {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)}};
+        VkPipelineVertexInputStateCreateInfo vertex{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+        vertex.vertexBindingDescriptionCount = 1;
+        vertex.pVertexBindingDescriptions = &binding;
+        vertex.vertexAttributeDescriptionCount = 2;
+        vertex.pVertexAttributeDescriptions = attributes;
+        VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+        assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        viewport.viewportCount = 1;
+        viewport.scissorCount = 1;
+        VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        raster.polygonMode = VK_POLYGON_MODE_FILL;
+        raster.cullMode = VK_CULL_MODE_NONE;
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.lineWidth = 1.0f;
+        VkPipelineMultisampleStateCreateInfo samples{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        samples.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        depth.depthTestEnable = VK_TRUE;
+        depth.depthWriteEnable = VK_TRUE;
+        depth.depthCompareOp = VK_COMPARE_OP_LESS;
+        VkPipelineColorBlendAttachmentState color{};
+        color.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        blend.attachmentCount = 1;
+        blend.pAttachments = &color;
+        const VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+        dynamic.dynamicStateCount = 2;
+        dynamic.pDynamicStates = dynamicStates;
+        VkGraphicsPipelineCreateInfo pipeline{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+        pipeline.stageCount = 2;
+        pipeline.pStages = stages;
+        pipeline.pVertexInputState = &vertex;
+        pipeline.pInputAssemblyState = &assembly;
+        pipeline.pViewportState = &viewport;
+        pipeline.pRasterizationState = &raster;
+        pipeline.pMultisampleState = &samples;
+        pipeline.pDepthStencilState = &depth;
+        pipeline.pColorBlendState = &blend;
+        pipeline.pDynamicState = &dynamic;
+        pipeline.layout = state.pipelineLayout;
+        pipeline.renderPass = state.renderPass;
+        ok = VkOk("vkCreateGraphicsPipelines", vkCreateGraphicsPipelines(state.vkDevice,
+                VK_NULL_HANDLE, 1, &pipeline, nullptr, &state.pipeline));
+    }
+    vkDestroyShaderModule(state.vkDevice, modules[1], nullptr);
+    vkDestroyShaderModule(state.vkDevice, modules[0], nullptr);
+    return ok;
+}
+
+bool InitDepth(State& state, EyeSwapchain& eye) {
+    VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    image.imageType = VK_IMAGE_TYPE_2D;
+    image.format = state.depthFormat;
+    image.extent = {eye.width, eye.height, 1};
+    image.mipLevels = 1;
+    image.arrayLayers = 1;
+    image.samples = VK_SAMPLE_COUNT_1_BIT;
+    image.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!VkOk("vkCreateImage(depth)", vkCreateImage(state.vkDevice, &image,
+            nullptr, &eye.depthImage))) return false;
+    VkMemoryRequirements requirements{};
+    vkGetImageMemoryRequirements(state.vkDevice, eye.depthImage, &requirements);
+    if (!AllocateMemory(state, requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            eye.depthMemory)) return false;
+    if (!VkOk("vkBindImageMemory(depth)", vkBindImageMemory(state.vkDevice,
+            eye.depthImage, eye.depthMemory, 0))) return false;
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = eye.depthImage;
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = state.depthFormat;
+    view.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    return VkOk("vkCreateImageView(depth)", vkCreateImageView(state.vkDevice,
+            &view, nullptr, &eye.depthView));
+}
+
 bool InitSwapchains(State& state) {
     uint32_t viewCount = 0;
     if (!XrOk("xrEnumerateViewConfigurationViews(count)", xrEnumerateViewConfigurationViews(
@@ -304,6 +576,19 @@ bool InitSwapchains(State& state) {
     }
     __android_log_print(ANDROID_LOG_INFO, kTag, "Swapchain format: %d", colorFormat);
 
+    for (VkFormat candidate : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM}) {
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(state.vkPhysical, candidate, &properties);
+        if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+            state.depthFormat = candidate;
+            break;
+        }
+    }
+    if (state.depthFormat == VK_FORMAT_UNDEFINED) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "No supported depth attachment format");
+        return false;
+    }
+
     VkAttachmentDescription attachment{};
     attachment.format = colorFormat;
     attachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -314,24 +599,39 @@ bool InitSwapchains(State& state) {
     // OpenXR supplies acquired color images in a layout compatible with this layout.
     attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = state.depthFormat;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    const VkAttachmentDescription attachments[] = {attachment, depthAttachment};
     VkAttachmentReference colorReference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkAttachmentReference depthReference{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorReference;
+    subpass.pDepthStencilAttachment = &depthReference;
     VkRenderPassCreateInfo renderPassInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &attachment;
+    renderPassInfo.attachmentCount = 2;
+    renderPassInfo.pAttachments = attachments;
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
     if (!VkOk("vkCreateRenderPass", vkCreateRenderPass(
             state.vkDevice, &renderPassInfo, nullptr, &state.renderPass))) return false;
+    if (!InitGeometry(state) || !InitPipeline(state)) return false;
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Cube geometry and graphics pipeline ready");
 
     for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
         auto& eye = state.eyes[eyeIndex];
         eye.width = configViews[eyeIndex].recommendedImageRectWidth;
         eye.height = configViews[eyeIndex].recommendedImageRectHeight;
         if (eye.width == 0 || eye.height == 0) return false;
+        if (!InitDepth(state, eye)) return false;
         XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
         createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         createInfo.format = colorFormat;
@@ -366,8 +666,9 @@ bool InitSwapchains(State& state) {
                     state.vkDevice, &viewInfo, nullptr, &eye.views[imageIndex]))) return false;
             VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
             framebufferInfo.renderPass = state.renderPass;
-            framebufferInfo.attachmentCount = 1;
-            framebufferInfo.pAttachments = &eye.views[imageIndex];
+            const VkImageView framebufferAttachments[] = {eye.views[imageIndex], eye.depthView};
+            framebufferInfo.attachmentCount = 2;
+            framebufferInfo.pAttachments = framebufferAttachments;
             framebufferInfo.width = eye.width;
             framebufferInfo.height = eye.height;
             framebufferInfo.layers = 1;
@@ -397,7 +698,7 @@ bool InitSwapchains(State& state) {
     return true;
 }
 
-bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex) {
+bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex, const XrView& xrView) {
     if (imageIndex >= eye.framebuffers.size()) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "Invalid swapchain image index %u", imageIndex);
         return false;
@@ -406,18 +707,34 @@ bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex) {
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (!VkOk("vkBeginCommandBuffer", vkBeginCommandBuffer(state.commandBuffer, &beginInfo))) return false;
-    VkClearValue clear{};
-    clear.color.float32[0] = 0.02f;
-    clear.color.float32[1] = 0.12f;
-    clear.color.float32[2] = 0.55f;
-    clear.color.float32[3] = 1.0f;
+    VkClearValue clear[2]{};
+    clear[0].color.float32[0] = 0.02f;
+    clear[0].color.float32[1] = 0.12f;
+    clear[0].color.float32[2] = 0.55f;
+    clear[0].color.float32[3] = 1.0f;
+    clear[1].depthStencil.depth = 1.0f;
     VkRenderPassBeginInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     passInfo.renderPass = state.renderPass;
     passInfo.framebuffer = eye.framebuffers[imageIndex];
     passInfo.renderArea.extent = {eye.width, eye.height};
-    passInfo.clearValueCount = 1;
-    passInfo.pClearValues = &clear;
+    passInfo.clearValueCount = 2;
+    passInfo.pClearValues = clear;
     vkCmdBeginRenderPass(state.commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+    const VkViewport viewport{0, 0, static_cast<float>(eye.width),
+                              static_cast<float>(eye.height), 0, 1};
+    const VkRect2D scissor{{0, 0}, {eye.width, eye.height}};
+    vkCmdSetViewport(state.commandBuffer, 0, 1, &viewport);
+    vkCmdSetScissor(state.commandBuffer, 0, 1, &scissor);
+    vkCmdBindPipeline(state.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.pipeline);
+    const VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(state.commandBuffer, 0, 1, &state.geometryBuffer, &offset);
+    vkCmdBindIndexBuffer(state.commandBuffer, state.geometryBuffer,
+                         sizeof(kCubeVertices), VK_INDEX_TYPE_UINT16);
+    PushConstants transform{Multiply(Projection(xrView.fov),
+                                     Multiply(EyeView(xrView.pose), CubeModel()))};
+    vkCmdPushConstants(state.commandBuffer, state.pipelineLayout,
+                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(transform), &transform);
+    vkCmdDrawIndexed(state.commandBuffer, static_cast<uint32_t>(kCubeIndices.size()), 1, 0, 0, 0);
     vkCmdEndRenderPass(state.commandBuffer);
     if (!VkOk("vkEndCommandBuffer", vkEndCommandBuffer(state.commandBuffer))) return false;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -468,6 +785,11 @@ bool PollEvents(State& state) {
         } else if (buffer.type == XR_TYPE_EVENT_DATA_EVENTS_LOST) {
             const auto& event = *reinterpret_cast<const XrEventDataEventsLost*>(&buffer);
             __android_log_print(ANDROID_LOG_WARN, kTag, "OpenXR events lost: %u", event.lostEventCount);
+        } else if (buffer.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
+            const auto& event = *reinterpret_cast<const XrEventDataReferenceSpaceChangePending*>(&buffer);
+            __android_log_print(ANDROID_LOG_INFO, kTag,
+                "Reference space change pending: type=%d, poseValid=%u",
+                event.referenceSpaceType, event.poseValid);
         }
     }
 }
@@ -508,7 +830,7 @@ bool RunFrame(State& state) {
                 waitImage.timeout = XR_INFINITE_DURATION;
                 if (!XrOk("xrWaitSwapchainImage", xrWaitSwapchainImage(
                         eye.handle, &waitImage))) return false;
-                if (!RenderEye(state, eye, imageIndex)) return false;
+                if (!RenderEye(state, eye, imageIndex, state.views[eyeIndex])) return false;
                 XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 if (!XrOk("xrReleaseSwapchainImage", xrReleaseSwapchainImage(
                         eye.handle, &release))) return false;
@@ -545,6 +867,10 @@ void Shutdown(State& state) {
     if (state.vkDevice != VK_NULL_HANDLE) VkOk("vkDeviceWaitIdle", vkDeviceWaitIdle(state.vkDevice));
     if (state.renderFence != VK_NULL_HANDLE) vkDestroyFence(state.vkDevice, state.renderFence, nullptr);
     if (state.commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(state.vkDevice, state.commandPool, nullptr);
+    if (state.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(state.vkDevice, state.pipeline, nullptr);
+    if (state.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(state.vkDevice, state.pipelineLayout, nullptr);
+    if (state.geometryBuffer != VK_NULL_HANDLE) vkDestroyBuffer(state.vkDevice, state.geometryBuffer, nullptr);
+    if (state.geometryMemory != VK_NULL_HANDLE) vkFreeMemory(state.vkDevice, state.geometryMemory, nullptr);
     for (auto& eye : state.eyes) {
         for (auto framebuffer : eye.framebuffers) {
             if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(state.vkDevice, framebuffer, nullptr);
@@ -552,6 +878,9 @@ void Shutdown(State& state) {
         for (auto view : eye.views) {
             if (view != VK_NULL_HANDLE) vkDestroyImageView(state.vkDevice, view, nullptr);
         }
+        if (eye.depthView != VK_NULL_HANDLE) vkDestroyImageView(state.vkDevice, eye.depthView, nullptr);
+        if (eye.depthImage != VK_NULL_HANDLE) vkDestroyImage(state.vkDevice, eye.depthImage, nullptr);
+        if (eye.depthMemory != VK_NULL_HANDLE) vkFreeMemory(state.vkDevice, eye.depthMemory, nullptr);
         if (eye.handle != XR_NULL_HANDLE) XrOk("xrDestroySwapchain", xrDestroySwapchain(eye.handle));
     }
     if (state.renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(state.vkDevice, state.renderPass, nullptr);
