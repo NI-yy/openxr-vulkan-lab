@@ -897,10 +897,10 @@ void android_main(android_app* app) {
     app->onInputEvent = OnInput;
     __android_log_print(ANDROID_LOG_INFO, kTag, "native app started");
     State state;
-    bool healthy = InitInstance(app, state);
-    if (healthy) healthy = InitSession(state);
-    if (healthy) healthy = InitSwapchains(state);
-    if (!healthy) {
+    bool operationSucceeded = InitInstance(app, state);
+    if (operationSucceeded) operationSucceeded = InitSession(state);
+    if (operationSucceeded) operationSucceeded = InitSwapchains(state);
+    if (!operationSucceeded) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "Initialization failed; finishing activity");
         ANativeActivity_finish(app->activity);
     }
@@ -908,22 +908,22 @@ void android_main(android_app* app) {
         int events = 0;
         android_poll_source* source = nullptr;
         // A stopped session needs periodic OpenXR event checks to resume.
-        const int timeout = healthy && state.running ? 0 : 50;
+        const int timeout = operationSucceeded && state.running ? 0 : 50;
         while (ALooper_pollOnce(timeout, nullptr, &events, reinterpret_cast<void**>(&source)) >= 0) {
             if (source != nullptr) source->process(app, source);
             if (app->destroyRequested) break;
             source = nullptr;
             if (timeout != 0) break;
         }
-        if (app->destroyRequested || !healthy) continue;
-        healthy = PollEvents(state);
-        if (healthy && state.exiting) {
-            healthy = false;
+        if (app->destroyRequested || !operationSucceeded) continue;
+        operationSucceeded = PollEvents(state);
+        if (operationSucceeded && state.exiting) {
+            operationSucceeded = false;
             ANativeActivity_finish(app->activity);
-        } else if (healthy && state.running) {
-            healthy = RunFrame(state);
+        } else if (operationSucceeded && state.running) {
+            operationSucceeded = RunFrame(state);
         }
-        if (!healthy && !state.exiting) {
+        if (!operationSucceeded && !state.exiting) {
             __android_log_print(ANDROID_LOG_ERROR, kTag, "OpenXR loop failed; finishing activity");
             ANativeActivity_finish(app->activity);
         }
