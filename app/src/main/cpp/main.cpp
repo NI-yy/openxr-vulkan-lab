@@ -1,5 +1,6 @@
 #include <android/log.h>
 #include <android_native_app_glue.h>
+#include <sys/system_properties.h>
 #include <vulkan/vulkan.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
@@ -32,7 +33,7 @@ using Clock = std::chrono::steady_clock;
 
 struct Mat4 { float v[16]{}; };
 struct Vertex { float position[3]; float color[3]; };
-struct PushConstants { Mat4 mvp; };
+struct PushConstants { Mat4 mvp[kEyeCount]; };
 
 // A 40 cm cube centered at the model origin. The benchmark draws a fixed grid
 // of these cubes in LOCAL space. Each face has its own color.
@@ -139,6 +140,7 @@ struct FrameSample {
     double intervalMs = 0;
     double leftGpuMs = 0;
     double rightGpuMs = 0;
+    double multiviewGpuMs = 0;
 };
 
 struct EyeSwapchain {
@@ -175,6 +177,9 @@ struct State {
     VkQueryPool timestampPool = VK_NULL_HANDLE;
     float timestampPeriodNs = 0;
     uint32_t timestampValidBits = 0;
+    bool multiviewRequested = true;
+    bool multiviewSupported = false;
+    bool useMultiview = false;
     std::array<EyeSwapchain, kEyeCount> eyes;
     std::array<XrView, kEyeCount> views{};
     XrEnvironmentBlendMode blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -306,16 +311,20 @@ bool InitSession(State& state) {
                         XR_VERSION_MINOR(requirements.minApiVersionSupported),
                         XR_VERSION_MAJOR(requirements.maxApiVersionSupported),
                         XR_VERSION_MINOR(requirements.maxApiVersionSupported));
-    const XrVersion requested = XR_MAKE_VERSION(1, 0, 0);
+    const XrVersion requested =
+        requirements.maxApiVersionSupported >= XR_MAKE_VERSION(1, 1, 0) &&
+        requirements.minApiVersionSupported <= XR_MAKE_VERSION(1, 1, 0)
+            ? XR_MAKE_VERSION(1, 1, 0) : XR_MAKE_VERSION(1, 0, 0);
     if (requested < requirements.minApiVersionSupported ||
         requested > requirements.maxApiVersionSupported) {
-        __android_log_print(ANDROID_LOG_ERROR, kTag, "Vulkan API 1.0 outside runtime requirements");
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "Vulkan API outside runtime requirements");
         return false;
     }
 
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application.pApplicationName = "OpenXR Vulkan Lab";
-    application.apiVersion = VK_API_VERSION_1_0;
+    application.apiVersion = requested >= XR_MAKE_VERSION(1, 1, 0)
+        ? VK_API_VERSION_1_1 : VK_API_VERSION_1_0;
     VkInstanceCreateInfo vkInstanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     vkInstanceInfo.pApplicationInfo = &application;
     XrVulkanInstanceCreateInfoKHR xrInstanceInfo{XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR};
@@ -359,6 +368,28 @@ bool InitSession(State& state) {
     }
     VkPhysicalDeviceProperties deviceProperties{};
     vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+    if (application.apiVersion >= VK_API_VERSION_1_1 &&
+        deviceProperties.apiVersion >= VK_API_VERSION_1_1) {
+        VkPhysicalDeviceMultiviewFeatures multiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features.pNext = &multiview;
+        vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+        VkPhysicalDeviceMultiviewProperties multiviewProperties{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES};
+        VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        properties.pNext = &multiviewProperties;
+        vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
+        state.multiviewSupported = multiview.multiview == VK_TRUE &&
+            multiviewProperties.maxMultiviewViewCount >= kEyeCount;
+        __android_log_print(ANDROID_LOG_INFO, kTag,
+                            "Vulkan multiview feature=%u maxViews=%u",
+                            multiview.multiview, multiviewProperties.maxMultiviewViewCount);
+    }
+    state.useMultiview = state.multiviewRequested && state.multiviewSupported;
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+                        "Vulkan multiview: supported=%u requested=%u selected=%s",
+                        state.multiviewSupported, state.multiviewRequested,
+                        state.useMultiview ? "multiview" : "dual-pass");
     state.timestampPeriodNs = deviceProperties.limits.timestampPeriod;
     state.timestampValidBits = families[graphicsFamily].timestampValidBits;
     __android_log_print(ANDROID_LOG_INFO, kTag,
@@ -373,6 +404,11 @@ bool InitSession(State& state) {
     VkDeviceCreateInfo vkDeviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     vkDeviceInfo.queueCreateInfoCount = 1;
     vkDeviceInfo.pQueueCreateInfos = &queue;
+    VkPhysicalDeviceMultiviewFeatures enabledMultiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
+    if (state.useMultiview) {
+        enabledMultiview.multiview = VK_TRUE;
+        vkDeviceInfo.pNext = &enabledMultiview;
+    }
     XrVulkanDeviceCreateInfoKHR xrDeviceInfo{XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
     xrDeviceInfo.systemId = state.system;
     xrDeviceInfo.pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
@@ -473,8 +509,8 @@ bool InitGeometry(State& state) {
 bool InitPipeline(State& state) {
     VkShaderModule modules[2]{};
     VkShaderModuleCreateInfo shader{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    shader.codeSize = sizeof(kCubeVertexShader);
-    shader.pCode = kCubeVertexShader;
+    shader.codeSize = state.useMultiview ? sizeof(kCubeMultiviewVertexShader) : sizeof(kCubeVertexShader);
+    shader.pCode = state.useMultiview ? kCubeMultiviewVertexShader : kCubeVertexShader;
     if (!VkOk("vkCreateShaderModule(vertex)", vkCreateShaderModule(state.vkDevice,
             &shader, nullptr, &modules[0]))) return false;
     shader.codeSize = sizeof(kCubeFragmentShader);
@@ -560,7 +596,7 @@ bool InitDepth(State& state, EyeSwapchain& eye) {
     image.format = state.depthFormat;
     image.extent = {eye.width, eye.height, 1};
     image.mipLevels = 1;
-    image.arrayLayers = 1;
+    image.arrayLayers = state.useMultiview ? kEyeCount : 1;
     image.samples = VK_SAMPLE_COUNT_1_BIT;
     image.tiling = VK_IMAGE_TILING_OPTIMAL;
     image.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -576,9 +612,10 @@ bool InitDepth(State& state, EyeSwapchain& eye) {
             eye.depthImage, eye.depthMemory, 0))) return false;
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     view.image = eye.depthImage;
-    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.viewType = state.useMultiview ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     view.format = state.depthFormat;
-    view.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    view.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0,
+                             state.useMultiview ? kEyeCount : 1};
     return VkOk("vkCreateImageView(depth)", vkCreateImageView(state.vkDevice,
             &view, nullptr, &eye.depthView));
 }
@@ -667,15 +704,28 @@ bool InitSwapchains(State& state) {
     renderPassInfo.pAttachments = attachments;
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
+    const uint32_t viewMask = (1u << kEyeCount) - 1;
+    VkRenderPassMultiviewCreateInfo multiviewPass{VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO};
+    if (state.useMultiview) {
+        multiviewPass.subpassCount = 1;
+        multiviewPass.pViewMasks = &viewMask;
+        renderPassInfo.pNext = &multiviewPass;
+    }
     if (!VkOk("vkCreateRenderPass", vkCreateRenderPass(
             state.vkDevice, &renderPassInfo, nullptr, &state.renderPass))) return false;
     if (!InitGeometry(state) || !InitPipeline(state)) return false;
     __android_log_print(ANDROID_LOG_INFO, kTag, "Cube geometry and graphics pipeline ready");
 
     for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
+        if (state.useMultiview && eyeIndex != 0) break;
         auto& eye = state.eyes[eyeIndex];
-        if (configViews[eyeIndex].maxImageRectWidth < kBenchmarkWidth ||
-            configViews[eyeIndex].maxImageRectHeight < kBenchmarkHeight) {
+        bool resolutionSupported = true;
+        for (uint32_t viewIndex = 0; viewIndex < kEyeCount; ++viewIndex) {
+            if (!state.useMultiview && viewIndex != eyeIndex) continue;
+            resolutionSupported &= configViews[viewIndex].maxImageRectWidth >= kBenchmarkWidth &&
+                configViews[viewIndex].maxImageRectHeight >= kBenchmarkHeight;
+        }
+        if (!resolutionSupported) {
             __android_log_print(ANDROID_LOG_ERROR, kTag,
                                 "Eye %u does not support %ux%u benchmark resolution",
                                 eyeIndex, kBenchmarkWidth, kBenchmarkHeight);
@@ -691,7 +741,7 @@ bool InitSwapchains(State& state) {
         createInfo.width = eye.width;
         createInfo.height = eye.height;
         createInfo.faceCount = 1;
-        createInfo.arraySize = 1;
+        createInfo.arraySize = state.useMultiview ? kEyeCount : 1;
         createInfo.mipCount = 1;
         if (!XrOk("xrCreateSwapchain", xrCreateSwapchain(
                 state.session, &createInfo, &eye.handle))) return false;
@@ -709,11 +759,12 @@ bool InitSwapchains(State& state) {
         for (uint32_t imageIndex = 0; imageIndex < imageCount; ++imageIndex) {
             VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             viewInfo.image = eye.images[imageIndex].image;
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.viewType = state.useMultiview ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
             viewInfo.format = colorFormat;
             viewInfo.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
                                    VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
-            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0,
+                                         state.useMultiview ? kEyeCount : 1};
             if (!VkOk("vkCreateImageView", vkCreateImageView(
                     state.vkDevice, &viewInfo, nullptr, &eye.views[imageIndex]))) return false;
             VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
@@ -728,8 +779,9 @@ bool InitSwapchains(State& state) {
                     state.vkDevice, &framebufferInfo, nullptr,
                     &eye.framebuffers[imageIndex]))) return false;
         }
-        __android_log_print(ANDROID_LOG_INFO, kTag, "Eye %u swapchain: %ux%u, %u images",
-                            eyeIndex, eye.width, eye.height, imageCount);
+        __android_log_print(ANDROID_LOG_INFO, kTag, "Swapchain %u: %ux%u, %u images, %u layers",
+                            eyeIndex, eye.width, eye.height, imageCount,
+                            state.useMultiview ? kEyeCount : 1);
     }
 
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -753,15 +805,16 @@ bool InitSwapchains(State& state) {
             state.vkDevice, &queryInfo, nullptr, &state.timestampPool))) return false;
     state.samples.reserve(kMeasuredFrames);
     __android_log_print(ANDROID_LOG_INFO, kTag,
-                        "Benchmark config: dual-pass cubes=%u resolution=%ux%u per eye samples=1 warmup=%u measure=%u colorFormat=%d depthFormat=%d",
+                        "Benchmark config: %s cubes=%u resolution=%ux%u per eye samples=1 warmup=%u measure=%u colorFormat=%d depthFormat=%d",
+                        state.useMultiview ? "multiview" : "dual-pass",
                         kCubeCount, kBenchmarkWidth, kBenchmarkHeight, kWarmupFrames,
                         kMeasuredFrames, colorFormat, state.depthFormat);
     for (auto& view : state.views) view.type = XR_TYPE_VIEW;
     return true;
 }
 
-bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex,
-               const XrView& xrView, double& gpuMs) {
+bool RenderScene(State& state, EyeSwapchain& eye, uint32_t imageIndex,
+                 uint32_t eyeIndex, double& gpuMs) {
     if (imageIndex >= eye.framebuffers.size()) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "Invalid swapchain image index %u", imageIndex);
         return false;
@@ -796,11 +849,20 @@ bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex,
     vkCmdBindVertexBuffers(state.commandBuffer, 0, 1, &state.geometryBuffer, &offset);
     vkCmdBindIndexBuffer(state.commandBuffer, state.geometryBuffer,
                          sizeof(kCubeVertices), VK_INDEX_TYPE_UINT16);
-    const Mat4 viewProjection = Multiply(Projection(xrView.fov), EyeView(xrView.pose));
+    std::array<Mat4, kEyeCount> viewProjection{};
+    for (uint32_t viewIndex = 0; viewIndex < (state.useMultiview ? kEyeCount : 1); ++viewIndex) {
+        const XrView& xrView = state.views[state.useMultiview ? viewIndex : eyeIndex];
+        viewProjection[viewIndex] = Multiply(Projection(xrView.fov), EyeView(xrView.pose));
+    }
     for (uint32_t cube = 0; cube < kCubeCount; ++cube) {
-        PushConstants transform{Multiply(viewProjection, CubeModel(cube))};
+        PushConstants transform{};
+        const Mat4 model = CubeModel(cube);
+        for (uint32_t viewIndex = 0; viewIndex < (state.useMultiview ? kEyeCount : 1); ++viewIndex) {
+            transform.mvp[viewIndex] = Multiply(viewProjection[viewIndex], model);
+        }
         vkCmdPushConstants(state.commandBuffer, state.pipelineLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(transform), &transform);
+                           VK_SHADER_STAGE_VERTEX_BIT, 0,
+                           state.useMultiview ? sizeof(transform) : sizeof(Mat4), &transform);
         vkCmdDrawIndexed(state.commandBuffer, static_cast<uint32_t>(kCubeIndices.size()),
                          1, 0, 0, 0);
     }
@@ -900,17 +962,23 @@ void LogBenchmark(const State& state) {
     values.reserve(state.samples.size());
     for (const auto& sample : state.samples) values.push_back(sample.intervalMs);
     LogPercentiles("frame_interval", values);
-    values.clear();
-    for (const auto& sample : state.samples) values.push_back(sample.leftGpuMs);
-    LogPercentiles("left_gpu", values);
-    values.clear();
-    for (const auto& sample : state.samples) values.push_back(sample.rightGpuMs);
-    LogPercentiles("right_gpu", values);
-    values.clear();
-    for (const auto& sample : state.samples) {
-        values.push_back(sample.leftGpuMs + sample.rightGpuMs);
+    if (state.useMultiview) {
+        values.clear();
+        for (const auto& sample : state.samples) values.push_back(sample.multiviewGpuMs);
+        LogPercentiles("multiview_gpu", values);
+    } else {
+        values.clear();
+        for (const auto& sample : state.samples) values.push_back(sample.leftGpuMs);
+        LogPercentiles("left_gpu", values);
+        values.clear();
+        for (const auto& sample : state.samples) values.push_back(sample.rightGpuMs);
+        LogPercentiles("right_gpu", values);
+        values.clear();
+        for (const auto& sample : state.samples) {
+            values.push_back(sample.leftGpuMs + sample.rightGpuMs);
+        }
+        LogPercentiles("total_gpu", values);
     }
-    LogPercentiles("total_gpu", values);
 }
 
 bool RunFrame(State& state) {
@@ -948,8 +1016,9 @@ bool RunFrame(State& state) {
         const XrViewStateFlags valid = XR_VIEW_STATE_POSITION_VALID_BIT |
                                        XR_VIEW_STATE_ORIENTATION_VALID_BIT;
         if ((viewState.viewStateFlags & valid) == valid) {
-            for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
-                auto& eye = state.eyes[eyeIndex];
+            const uint32_t swapchainCount = state.useMultiview ? 1 : kEyeCount;
+            for (uint32_t swapchainIndex = 0; swapchainIndex < swapchainCount; ++swapchainIndex) {
+                auto& eye = state.eyes[swapchainIndex];
                 uint32_t imageIndex = 0;
                 XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
                 if (!XrOk("xrAcquireSwapchainImage", xrAcquireSwapchainImage(
@@ -959,17 +1028,22 @@ bool RunFrame(State& state) {
                 if (!XrOk("xrWaitSwapchainImage", xrWaitSwapchainImage(
                         eye.handle, &waitImage))) return false;
                 double gpuMs = 0;
-                if (!RenderEye(state, eye, imageIndex, state.views[eyeIndex], gpuMs)) return false;
-                if (eyeIndex == 0) sample.leftGpuMs = gpuMs;
+                if (!RenderScene(state, eye, imageIndex, swapchainIndex, gpuMs)) return false;
+                if (state.useMultiview) sample.multiviewGpuMs = gpuMs;
+                else if (swapchainIndex == 0) sample.leftGpuMs = gpuMs;
                 else sample.rightGpuMs = gpuMs;
                 XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 if (!XrOk("xrReleaseSwapchainImage", xrReleaseSwapchainImage(
                         eye.handle, &release))) return false;
+            }
+            for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
+                auto& eye = state.eyes[state.useMultiview ? 0 : eyeIndex];
                 auto& projection = layerViews[eyeIndex];
                 projection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
                 projection.pose = state.views[eyeIndex].pose;
                 projection.fov = state.views[eyeIndex].fov;
                 projection.subImage.swapchain = eye.handle;
+                projection.subImage.imageArrayIndex = state.useMultiview ? eyeIndex : 0;
                 projection.subImage.imageRect.extent = {
                     static_cast<int32_t>(eye.width), static_cast<int32_t>(eye.height)};
             }
@@ -1046,6 +1120,13 @@ void android_main(android_app* app) {
     app->onInputEvent = OnInput;
     __android_log_print(ANDROID_LOG_INFO, kTag, "native app started");
     State state;
+    char mode[PROP_VALUE_MAX]{};
+    __system_property_get("debug.openxrvulkanlab.mode", mode);
+    if (std::strcmp(mode, "dual-pass") == 0) state.multiviewRequested = false;
+    else if (mode[0] != '\0' && std::strcmp(mode, "multiview") != 0) {
+        __android_log_print(ANDROID_LOG_WARN, kTag,
+                            "Unknown render mode '%s'; selecting multiview when supported", mode);
+    }
     bool operationSucceeded = InitInstance(app, state);
     if (operationSucceeded) operationSucceeded = InitSession(state);
     if (operationSucceeded) operationSucceeded = InitSwapchains(state);

@@ -1,10 +1,15 @@
 param(
-    [string]$OutputPath = "docs/dual-pass-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt",
+    [ValidateSet('dual-pass', 'multiview')]
+    [string]$Mode = 'dual-pass',
+    [string]$OutputPath = '',
     [int]$TimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+if (-not $OutputPath) {
+    $OutputPath = "docs/$Mode-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
+}
 $adb = Join-Path $env:ANDROID_HOME 'platform-tools/adb.exe'
 $apk = Join-Path $repo 'app/build/outputs/apk/debug/app-debug.apk'
 if (-not (Test-Path $adb)) { throw "adb not found: $adb" }
@@ -53,21 +58,27 @@ Add-Section 'Device' @(
 Add-Section 'Thermal before' (Device @('shell','dumpsys','thermalservice'))
 
 Device @('install','-r',$apk) | Out-Null
+Device @('shell','setprop','debug.openxrvulkanlab.mode',$Mode) | Out-Null
 Device @('logcat','-c') | Out-Null
 Device @('shell','am','force-stop','dev.niyy.openxrvulkanlab') | Out-Null
 Device @('shell','am','start','-n','dev.niyy.openxrvulkanlab/android.app.NativeActivity') | Out-Null
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $complete = $false
+$wrongMode = $false
 do {
     Start-Sleep -Seconds 3
     $log = Device @('logcat','-d','-s','OpenXRVulkanLab:I','*:S')
     $complete = [bool]($log | Select-String 'Benchmark complete:')
-} until ($complete -or (Get-Date) -ge $deadline)
+    $wrongMode = [bool]($log | Select-String 'Benchmark config: ') -and
+        -not [bool]($log | Select-String "Benchmark config: $Mode ")
+} until ($complete -or $wrongMode -or (Get-Date) -ge $deadline)
 
-Add-Section 'Measurement' @("finished=$(Get-Date -Format o)", "complete=$complete")
+$selected = [bool]($log | Select-String "Benchmark config: $Mode ")
+Add-Section 'Measurement' @("finished=$(Get-Date -Format o)", "requested_mode=$Mode", "selected_mode_matched=$selected", "complete=$complete")
 Add-Section 'Application log' $log
 Add-Section 'Thermal after' (Device @('shell','dumpsys','thermalservice'))
 $lines | Set-Content -LiteralPath $destination -Encoding utf8
 Device @('shell','am','force-stop','dev.niyy.openxrvulkanlab') | Out-Null
 Write-Host "Saved $destination"
+if (-not $selected) { throw "Requested render mode was not selected; inspect $destination" }
 if (-not $complete) { throw "Benchmark did not finish within $TimeoutSeconds seconds; inspect $destination" }

@@ -3,10 +3,10 @@ $ErrorActionPreference = 'Stop'
 $shaderDir = Join-Path $PSScriptRoot '..\app\src\main\cpp'
 $compiler = (Get-Command glslc -ErrorAction Stop).Source
 $lines = [System.Collections.Generic.List[string]]::new()
-$lines.Add('// Generated from cube.vert and cube.frag with glslc.')
+$lines.Add('// Generated from cube.vert, cube_multiview.vert, and cube.frag with glslc.')
 $lines.Add('#pragma once')
 $lines.Add('#include <cstdint>')
-foreach ($entry in @(@('cube.vert', 'kCubeVertexShader'), @('cube.frag', 'kCubeFragmentShader'))) {
+foreach ($entry in @(@('cube.vert', 'kCubeVertexShader'), @('cube_multiview.vert', 'kCubeMultiviewVertexShader'), @('cube.frag', 'kCubeFragmentShader'))) {
     $source = Join-Path $shaderDir $entry[0]
     $output = Join-Path $shaderDir ($entry[0] + '.spv')
     try {
