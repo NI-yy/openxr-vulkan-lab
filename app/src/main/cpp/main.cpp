@@ -5,7 +5,9 @@
 #include <openxr/openxr_platform.h>
 
 #include <cstring>
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -19,14 +21,21 @@ constexpr XrViewConfigurationType kView = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STE
 constexpr uint32_t kEyeCount = 2;
 constexpr float kNear = 0.05f;
 constexpr float kFar = 100.0f;
+constexpr uint32_t kBenchmarkWidth = 1024;
+constexpr uint32_t kBenchmarkHeight = 1024;
+constexpr uint32_t kGridSide = 5;
+constexpr uint32_t kGridDepth = 4;
+constexpr uint32_t kCubeCount = kGridSide * kGridSide * kGridDepth;
+constexpr uint32_t kWarmupFrames = 300;
+constexpr uint32_t kMeasuredFrames = 1800;
+using Clock = std::chrono::steady_clock;
 
 struct Mat4 { float v[16]{}; };
 struct Vertex { float position[3]; float color[3]; };
 struct PushConstants { Mat4 mvp; };
 
-// A 40 cm cube centered at the model origin. CubeModel places it two meters
-// in front of the initial LOCAL origin. Each face has four vertices so that
-// adjacent faces can have different colors.
+// A 40 cm cube centered at the model origin. The benchmark draws a fixed grid
+// of these cubes in LOCAL space. Each face has its own color.
 constexpr std::array<Vertex, 24> kCubeVertices{{
     // Front (+Z), red
     {{-0.2f, -0.2f,  0.2f}, {1.0f, 0.25f, 0.2f}},
@@ -114,12 +123,23 @@ Mat4 Projection(const XrFovf& fov) {
     return p;
 }
 
-Mat4 CubeModel() {
+Mat4 CubeModel(uint32_t cubeIndex) {
     Mat4 m{};
     m.v[0] = m.v[5] = m.v[10] = m.v[15] = 1;
-    m.v[14] = -2;
+    const uint32_t column = cubeIndex % kGridSide;
+    const uint32_t row = (cubeIndex / kGridSide) % kGridSide;
+    const uint32_t depth = cubeIndex / (kGridSide * kGridSide);
+    m.v[12] = (static_cast<float>(column) - 2.0f) * 0.55f;
+    m.v[13] = (static_cast<float>(row) - 2.0f) * 0.55f;
+    m.v[14] = -2.0f - static_cast<float>(depth) * 0.65f;
     return m;
 }
+
+struct FrameSample {
+    double intervalMs = 0;
+    double leftGpuMs = 0;
+    double rightGpuMs = 0;
+};
 
 struct EyeSwapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -139,7 +159,7 @@ struct State {
     XrSession session = XR_NULL_HANDLE;
     XrSpace space = XR_NULL_HANDLE;
     VkInstance vkInstance = VK_NULL_HANDLE;
-    VkPhysicalDevice vkPhysical = VK_NULL_HANDLE;
+    VkPhysicalDevice vkPhysicalDevice = VK_NULL_HANDLE;
     VkDevice vkDevice = VK_NULL_HANDLE;
     VkQueue vkQueue = VK_NULL_HANDLE;
     uint32_t graphicsFamily = 0;
@@ -152,12 +172,19 @@ struct State {
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
     VkFence renderFence = VK_NULL_HANDLE;
+    VkQueryPool timestampPool = VK_NULL_HANDLE;
+    float timestampPeriodNs = 0;
+    uint32_t timestampValidBits = 0;
     std::array<EyeSwapchain, kEyeCount> eyes;
     std::array<XrView, kEyeCount> views{};
     XrEnvironmentBlendMode blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     bool running = false;
     bool exiting = false;
     uint64_t frames = 0;
+    Clock::time_point previousFrameStart{};
+    bool havePreviousFrameStart = false;
+    std::vector<FrameSample> samples;
+    uint32_t renderedFrames = 0;
 };
 
 bool XrOk(const char* name, XrResult result) {
@@ -210,7 +237,8 @@ bool ExtensionsAvailable() {
               xrEnumerateInstanceExtensionProperties(nullptr, count, &count, available.data()))) return false;
     bool complete = true;
     for (const char* required : {XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
-                                 XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME}) {
+                                 XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME,
+                                 XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME}) {
         bool found = false;
         for (const auto& entry : available) {
             if (std::strcmp(entry.extensionName, required) == 0) {
@@ -239,13 +267,14 @@ bool InitInstance(android_app* app, State& state) {
     android.applicationVM = app->activity->vm;
     android.applicationActivity = app->activity->clazz;
     const char* extensions[] = {XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
-                                XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
+                                XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME,
+                                XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME};
     XrInstanceCreateInfo info{XR_TYPE_INSTANCE_CREATE_INFO};
     info.next = &android;
     std::strncpy(info.applicationInfo.applicationName, "OpenXR Vulkan Lab",
                  XR_MAX_APPLICATION_NAME_SIZE - 1);
     info.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
-    info.enabledExtensionCount = 2;
+    info.enabledExtensionCount = 3;
     info.enabledExtensionNames = extensions;
     if (!XrOk("xrCreateInstance", xrCreateInstance(&info, &state.instance))) return false;
 
@@ -301,18 +330,18 @@ bool InitSession(State& state) {
     XrVulkanGraphicsDeviceGetInfoKHR getInfo{XR_TYPE_VULKAN_GRAPHICS_DEVICE_GET_INFO_KHR};
     getInfo.systemId = state.system;
     getInfo.vulkanInstance = state.vkInstance;
-    VkPhysicalDevice physical = VK_NULL_HANDLE;
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     if (!XrOk("xrGetVulkanGraphicsDevice2KHR", graphicsDeviceFn(
-            state.instance, &getInfo, &physical))) return false;
-    state.vkPhysical = physical;
+            state.instance, &getInfo, &physicalDevice))) return false;
+    state.vkPhysicalDevice = physicalDevice;
     uint32_t familyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, nullptr);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, nullptr);
     if (familyCount == 0) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "No Vulkan queue families");
         return false;
     }
     std::vector<VkQueueFamilyProperties> families(familyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, families.data());
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
     uint32_t graphicsFamily = familyCount;
     for (uint32_t i = 0; i < familyCount; ++i) {
         if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
@@ -324,6 +353,18 @@ bool InitSession(State& state) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "No Vulkan graphics queue family");
         return false;
     }
+    if (families[graphicsFamily].timestampValidBits == 0) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "Graphics queue does not support timestamps");
+        return false;
+    }
+    VkPhysicalDeviceProperties deviceProperties{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
+    state.timestampPeriodNs = deviceProperties.limits.timestampPeriod;
+    state.timestampValidBits = families[graphicsFamily].timestampValidBits;
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+                        "GPU: %s; timestampValidBits=%u; timestampPeriodNs=%.6f",
+                        deviceProperties.deviceName, families[graphicsFamily].timestampValidBits,
+                        state.timestampPeriodNs);
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queue{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queue.queueFamilyIndex = graphicsFamily;
@@ -335,7 +376,7 @@ bool InitSession(State& state) {
     XrVulkanDeviceCreateInfoKHR xrDeviceInfo{XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
     xrDeviceInfo.systemId = state.system;
     xrDeviceInfo.pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
-    xrDeviceInfo.vulkanPhysicalDevice = physical;
+    xrDeviceInfo.vulkanPhysicalDevice = physicalDevice;
     xrDeviceInfo.vulkanCreateInfo = &vkDeviceInfo;
     vkResult = VK_SUCCESS;
     if (!XrOk("xrCreateVulkanDeviceKHR", deviceFn(
@@ -346,7 +387,7 @@ bool InitSession(State& state) {
 
     XrGraphicsBindingVulkan2KHR binding{XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
     binding.instance = state.vkInstance;
-    binding.physicalDevice = physical;
+    binding.physicalDevice = physicalDevice;
     binding.device = state.vkDevice;
     binding.queueFamilyIndex = graphicsFamily;
     binding.queueIndex = 0;
@@ -355,6 +396,11 @@ bool InitSession(State& state) {
     sessionInfo.systemId = state.system;
     if (!XrOk("xrCreateSession", xrCreateSession(state.instance, &sessionInfo, &state.session))) return false;
     __android_log_print(ANDROID_LOG_INFO, kTag, "OpenXR session created (graphics queue=%u)", graphicsFamily);
+    PFN_xrGetDisplayRefreshRateFB getRefreshRate = nullptr;
+    if (!Load(state.instance, "xrGetDisplayRefreshRateFB", &getRefreshRate)) return false;
+    float refreshRate = 0;
+    if (!XrOk("xrGetDisplayRefreshRateFB", getRefreshRate(state.session, &refreshRate))) return false;
+    __android_log_print(ANDROID_LOG_INFO, kTag, "OpenXR display refresh rate: %.2f Hz", refreshRate);
 
     XrReferenceSpaceCreateInfo spaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
     spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
@@ -384,7 +430,7 @@ bool InitSession(State& state) {
 bool AllocateMemory(State& state, VkMemoryRequirements requirements,
                     VkMemoryPropertyFlags properties, VkDeviceMemory& memory) {
     VkPhysicalDeviceMemoryProperties types{};
-    vkGetPhysicalDeviceMemoryProperties(state.vkPhysical, &types);
+    vkGetPhysicalDeviceMemoryProperties(state.vkPhysicalDevice, &types);
     for (uint32_t i = 0; i < types.memoryTypeCount; ++i) {
         if ((requirements.memoryTypeBits & (1u << i)) &&
             (types.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -560,7 +606,7 @@ bool InitSwapchains(State& state) {
     for (VkFormat preferred : {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_SRGB,
                                VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM}) {
         VkFormatProperties properties{};
-        vkGetPhysicalDeviceFormatProperties(state.vkPhysical, preferred, &properties);
+        vkGetPhysicalDeviceFormatProperties(state.vkPhysicalDevice, preferred, &properties);
         if (!(properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) continue;
         for (int64_t offered : formats) {
             if (offered == preferred) {
@@ -578,7 +624,7 @@ bool InitSwapchains(State& state) {
 
     for (VkFormat candidate : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM}) {
         VkFormatProperties properties{};
-        vkGetPhysicalDeviceFormatProperties(state.vkPhysical, candidate, &properties);
+        vkGetPhysicalDeviceFormatProperties(state.vkPhysicalDevice, candidate, &properties);
         if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
             state.depthFormat = candidate;
             break;
@@ -628,9 +674,15 @@ bool InitSwapchains(State& state) {
 
     for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
         auto& eye = state.eyes[eyeIndex];
-        eye.width = configViews[eyeIndex].recommendedImageRectWidth;
-        eye.height = configViews[eyeIndex].recommendedImageRectHeight;
-        if (eye.width == 0 || eye.height == 0) return false;
+        if (configViews[eyeIndex].maxImageRectWidth < kBenchmarkWidth ||
+            configViews[eyeIndex].maxImageRectHeight < kBenchmarkHeight) {
+            __android_log_print(ANDROID_LOG_ERROR, kTag,
+                                "Eye %u does not support %ux%u benchmark resolution",
+                                eyeIndex, kBenchmarkWidth, kBenchmarkHeight);
+            return false;
+        }
+        eye.width = kBenchmarkWidth;
+        eye.height = kBenchmarkHeight;
         if (!InitDepth(state, eye)) return false;
         XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
         createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
@@ -694,11 +746,22 @@ bool InitSwapchains(State& state) {
     VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     if (!VkOk("vkCreateFence", vkCreateFence(
             state.vkDevice, &fenceInfo, nullptr, &state.renderFence))) return false;
+    VkQueryPoolCreateInfo queryInfo{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    queryInfo.queryCount = 2;
+    if (!VkOk("vkCreateQueryPool(timestamp)", vkCreateQueryPool(
+            state.vkDevice, &queryInfo, nullptr, &state.timestampPool))) return false;
+    state.samples.reserve(kMeasuredFrames);
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+                        "Benchmark config: dual-pass cubes=%u resolution=%ux%u per eye samples=1 warmup=%u measure=%u colorFormat=%d depthFormat=%d",
+                        kCubeCount, kBenchmarkWidth, kBenchmarkHeight, kWarmupFrames,
+                        kMeasuredFrames, colorFormat, state.depthFormat);
     for (auto& view : state.views) view.type = XR_TYPE_VIEW;
     return true;
 }
 
-bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex, const XrView& xrView) {
+bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex,
+               const XrView& xrView, double& gpuMs) {
     if (imageIndex >= eye.framebuffers.size()) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "Invalid swapchain image index %u", imageIndex);
         return false;
@@ -707,6 +770,9 @@ bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex, const XrVie
     VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (!VkOk("vkBeginCommandBuffer", vkBeginCommandBuffer(state.commandBuffer, &beginInfo))) return false;
+    vkCmdResetQueryPool(state.commandBuffer, state.timestampPool, 0, 2);
+    vkCmdWriteTimestamp(state.commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        state.timestampPool, 0);
     VkClearValue clear[2]{};
     clear[0].color.float32[0] = 0.02f;
     clear[0].color.float32[1] = 0.12f;
@@ -730,12 +796,17 @@ bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex, const XrVie
     vkCmdBindVertexBuffers(state.commandBuffer, 0, 1, &state.geometryBuffer, &offset);
     vkCmdBindIndexBuffer(state.commandBuffer, state.geometryBuffer,
                          sizeof(kCubeVertices), VK_INDEX_TYPE_UINT16);
-    PushConstants transform{Multiply(Projection(xrView.fov),
-                                     Multiply(EyeView(xrView.pose), CubeModel()))};
-    vkCmdPushConstants(state.commandBuffer, state.pipelineLayout,
-                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(transform), &transform);
-    vkCmdDrawIndexed(state.commandBuffer, static_cast<uint32_t>(kCubeIndices.size()), 1, 0, 0, 0);
+    const Mat4 viewProjection = Multiply(Projection(xrView.fov), EyeView(xrView.pose));
+    for (uint32_t cube = 0; cube < kCubeCount; ++cube) {
+        PushConstants transform{Multiply(viewProjection, CubeModel(cube))};
+        vkCmdPushConstants(state.commandBuffer, state.pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(transform), &transform);
+        vkCmdDrawIndexed(state.commandBuffer, static_cast<uint32_t>(kCubeIndices.size()),
+                         1, 0, 0, 0);
+    }
     vkCmdEndRenderPass(state.commandBuffer);
+    vkCmdWriteTimestamp(state.commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        state.timestampPool, 1);
     if (!VkOk("vkEndCommandBuffer", vkEndCommandBuffer(state.commandBuffer))) return false;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
@@ -745,6 +816,16 @@ bool RenderEye(State& state, EyeSwapchain& eye, uint32_t imageIndex, const XrVie
     // and the GPU work is finished before the image is released to the runtime.
     if (!VkOk("vkWaitForFences", vkWaitForFences(
             state.vkDevice, 1, &state.renderFence, VK_TRUE, UINT64_MAX))) return false;
+    uint64_t timestamps[2]{};
+    if (!VkOk("vkGetQueryPoolResults(timestamp)", vkGetQueryPoolResults(
+            state.vkDevice, state.timestampPool, 0, 2, sizeof(timestamps), timestamps,
+            sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT))) return false;
+    uint64_t elapsedTicks = timestamps[1] - timestamps[0];
+    if (state.timestampValidBits < 64) {
+        elapsedTicks &= (uint64_t{1} << state.timestampValidBits) - 1;
+    }
+    gpuMs = static_cast<double>(elapsedTicks) *
+            state.timestampPeriodNs / 1000000.0;
     if (!VkOk("vkResetFences", vkResetFences(state.vkDevice, 1, &state.renderFence))) return false;
     return true;
 }
@@ -767,6 +848,9 @@ bool PollEvents(State& state) {
                 info.primaryViewConfigurationType = kView;
                 if (!XrOk("xrBeginSession", xrBeginSession(state.session, &info))) return false;
                 state.running = true;
+                state.renderedFrames = 0;
+                state.samples.clear();
+                state.havePreviousFrameStart = false;
                 __android_log_print(ANDROID_LOG_INFO, kTag, "OpenXR session started");
             } else if (event.state == XR_SESSION_STATE_STOPPING && state.running) {
                 state.running = false;
@@ -794,7 +878,48 @@ bool PollEvents(State& state) {
     }
 }
 
+void LogPercentiles(const char* metric, std::vector<double>& values) {
+    std::sort(values.begin(), values.end());
+    const size_t n = values.size();
+    const auto percentile = [&](double fraction) {
+        const double position = fraction * static_cast<double>(n - 1);
+        const size_t low = static_cast<size_t>(position);
+        const size_t high = std::min(low + 1, n - 1);
+        return values[low] + (values[high] - values[low]) * (position - low);
+    };
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+                        "Benchmark %s ms: p10=%.4f median=%.4f p90=%.4f",
+                        metric, percentile(0.1), percentile(0.5), percentile(0.9));
+}
+
+void LogBenchmark(const State& state) {
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+                        "Benchmark complete: rendered=%u warmup=%u measured=%zu",
+                        state.renderedFrames, kWarmupFrames, state.samples.size());
+    std::vector<double> values;
+    values.reserve(state.samples.size());
+    for (const auto& sample : state.samples) values.push_back(sample.intervalMs);
+    LogPercentiles("frame_interval", values);
+    values.clear();
+    for (const auto& sample : state.samples) values.push_back(sample.leftGpuMs);
+    LogPercentiles("left_gpu", values);
+    values.clear();
+    for (const auto& sample : state.samples) values.push_back(sample.rightGpuMs);
+    LogPercentiles("right_gpu", values);
+    values.clear();
+    for (const auto& sample : state.samples) {
+        values.push_back(sample.leftGpuMs + sample.rightGpuMs);
+    }
+    LogPercentiles("total_gpu", values);
+}
+
 bool RunFrame(State& state) {
+    const auto frameStart = Clock::now();
+    const double intervalMs = state.havePreviousFrameStart
+        ? std::chrono::duration<double, std::milli>(frameStart - state.previousFrameStart).count()
+        : 0.0;
+    state.previousFrameStart = frameStart;
+    state.havePreviousFrameStart = true;
     XrFrameWaitInfo wait{XR_TYPE_FRAME_WAIT_INFO};
     XrFrameState frame{XR_TYPE_FRAME_STATE};
     if (!XrOk("xrWaitFrame", xrWaitFrame(state.session, &wait, &frame))) return false;
@@ -804,6 +929,9 @@ bool RunFrame(State& state) {
     XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     const XrCompositionLayerBaseHeader* layers[] = {
         reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
+    bool rendered = false;
+    FrameSample sample{};
+    sample.intervalMs = intervalMs;
     if (frame.shouldRender) {
         XrViewLocateInfo locate{XR_TYPE_VIEW_LOCATE_INFO};
         locate.viewConfigurationType = kView;
@@ -830,7 +958,10 @@ bool RunFrame(State& state) {
                 waitImage.timeout = XR_INFINITE_DURATION;
                 if (!XrOk("xrWaitSwapchainImage", xrWaitSwapchainImage(
                         eye.handle, &waitImage))) return false;
-                if (!RenderEye(state, eye, imageIndex, state.views[eyeIndex])) return false;
+                double gpuMs = 0;
+                if (!RenderEye(state, eye, imageIndex, state.views[eyeIndex], gpuMs)) return false;
+                if (eyeIndex == 0) sample.leftGpuMs = gpuMs;
+                else sample.rightGpuMs = gpuMs;
                 XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 if (!XrOk("xrReleaseSwapchainImage", xrReleaseSwapchainImage(
                         eye.handle, &release))) return false;
@@ -845,6 +976,7 @@ bool RunFrame(State& state) {
             layer.space = state.space;
             layer.viewCount = kEyeCount;
             layer.views = layerViews.data();
+            rendered = true;
         }
     }
     XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};
@@ -855,6 +987,22 @@ bool RunFrame(State& state) {
         end.layers = layers;
     }
     if (!XrOk("xrEndFrame", xrEndFrame(state.session, &end))) return false;
+    if (rendered) {
+        ++state.renderedFrames;
+        if (state.renderedFrames > kWarmupFrames &&
+            state.samples.size() < kMeasuredFrames && intervalMs > 0) {
+            state.samples.push_back(sample);
+            if (state.samples.size() == kMeasuredFrames) LogBenchmark(state);
+        }
+    } else {
+        state.havePreviousFrameStart = false;
+        if (state.renderedFrames != 0 && state.samples.size() < kMeasuredFrames) {
+            state.renderedFrames = 0;
+            state.samples.clear();
+            __android_log_print(ANDROID_LOG_INFO, kTag,
+                                "Benchmark reset after a frame without rendering");
+        }
+    }
     ++state.frames;
     if (state.frames == 1 || state.frames % 120 == 0) {
         __android_log_print(ANDROID_LOG_INFO, kTag, "OpenXR frame %llu completed; shouldRender=%u",
@@ -865,6 +1013,7 @@ bool RunFrame(State& state) {
 
 void Shutdown(State& state) {
     if (state.vkDevice != VK_NULL_HANDLE) VkOk("vkDeviceWaitIdle", vkDeviceWaitIdle(state.vkDevice));
+    if (state.timestampPool != VK_NULL_HANDLE) vkDestroyQueryPool(state.vkDevice, state.timestampPool, nullptr);
     if (state.renderFence != VK_NULL_HANDLE) vkDestroyFence(state.vkDevice, state.renderFence, nullptr);
     if (state.commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(state.vkDevice, state.commandPool, nullptr);
     if (state.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(state.vkDevice, state.pipeline, nullptr);

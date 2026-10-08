@@ -1,6 +1,6 @@
 # openxr-vulkan-lab
 
-Meta Quest 2 向けの OpenXR / Vulkan ネイティブアプリの実験用リポジトリです。現段階のアプリは Vulkan を使って OpenXR セッションと LOCAL 参照空間を作り、セッション状態に従ってフレームループを実行します。左右の目それぞれに OpenXR Swapchain を作り、青い背景の前に空間固定の立方体を Projection Layer で表示します。
+Meta Quest 2 向けの OpenXR / Vulkan ネイティブアプリの実験用リポジトリです。現段階のアプリは Vulkan を使って OpenXR セッションと LOCAL 参照空間を作り、セッション状態に従ってフレームループを実行します。左右の目それぞれに OpenXR Swapchain を作り、Dual Pass で青い背景の前に空間固定の立方体 100 個を Projection Layer で表示・計測します。
 
 ## 環境
 
@@ -36,7 +36,9 @@ $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 
 `OpenXR extension XR_KHR_vulkan_enable2: available`、`OpenXR runtime: Oculus`、`OpenXR session created`、`LOCAL reference space created`、`Cube geometry and graphics pipeline ready`、`Eye 0 swapchain`、`Eye 1 swapchain`、`OpenXR session started`、`OpenXR frame 1 completed; shouldRender=1` を確認します。以降は 120 フレームごとに進行を記録します。Quest 2 を装着し、青い背景の前に色分けされた立方体が左右の目に見えることを確認してください。
 
-立方体の中心は `LOCAL` 空間の `(0, 0, -2 m)` に固定し、一辺は 40 cm です。描画時には `predictedDisplayTime` の左右の View 姿勢と FOV から、それぞれ View / Projection 行列を作ります。頭を左右や上下に動かしても立方体が頭についてこず、同じ空間位置に見えること、顔を回して画面端へ移したときにクリッピングや奥行きが自然なことを実機で確認します。再センタリングで `LOCAL` の原点が変わる場合は `Reference space change pending` をログに記録します。
+立方体は一辺 40 cm で、`LOCAL` 空間の固定した 5 × 5 × 4 格子に配置します。描画時には `predictedDisplayTime` の左右の View 姿勢と FOV から、それぞれ View / Projection 行列を作ります。頭を左右や上下に動かしても格子が頭についてこず、同じ空間位置に見えることを実機で確認します。再センタリングで `LOCAL` の原点が変わる場合は `Reference space change pending` をログに記録します。
+
+Issue #6 の Dual Pass 基準性能を測る条件、測定方法、実機結果は [ベンチマーク記録](docs/dual-pass-benchmark.md) を参照してください。`./tools/measure_dual_pass.ps1` で端末情報と計測ログを保存できます。
 
 2026-10-03 に Quest 2 で取得した[左右の目の画面キャプチャ](docs/quest2-clear-color.png)は、Issue #4 のクリア色実装時の記録です。
 
