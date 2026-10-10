@@ -1,6 +1,32 @@
+import java.security.MessageDigest
+
 plugins {
     id 'com.android.application'
 }
+
+def shaderDir = file('src/main/cpp')
+def shaderNames = ['cube.vert', 'cube_multiview.vert', 'cube.frag']
+def shaderHeader = new File(shaderDir, 'cube_shaders.h')
+
+tasks.register('checkCubeShaders') {
+    group = 'verification'
+    description = 'Checks that cube_shaders.h was generated from the current GLSL sources.'
+    inputs.files(shaderNames.collect { new File(shaderDir, it) })
+    inputs.file(shaderHeader)
+    doLast {
+        def header = shaderHeader.getText('UTF-8')
+        shaderNames.each { name ->
+            def source = new File(shaderDir, name)
+            def digest = MessageDigest.getInstance('SHA-256').digest(source.bytes).encodeHex().toString()
+            String marker = "// SHA-256 ${name}: ${digest}"
+            if (!header.readLines().contains(marker)) {
+                throw new GradleException("${name} and cube_shaders.h differ. Run ./tools/generate_cube_shaders.ps1 with glslc, then commit the updated header.")
+            }
+        }
+    }
+}
+
+tasks.named('preBuild').configure { dependsOn 'checkCubeShaders' }
 
 android {
     namespace 'dev.niyy.openxrvulkanlab'
