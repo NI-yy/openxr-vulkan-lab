@@ -81,11 +81,4 @@ Issue #5 の立方体実装でも、2026-10-03 に Quest 2 で[左右の目の�
 
 初回の OpenXR SDK 取得を省略して手元の同じ commit を使う場合は、ビルド前に `OPENXR_SDK_SOURCE_DIR` をそのチェックアウトの絶対パスに設定できます。通常のビルドでは不要です。
 
-Shader のソースは `app/src/main/cpp/cube.vert`、`cube_multiview.vert`、`cube.frag` です。いずれかを変更したら、Vulkan SDK の `glslc` を PATH に置き、リポジトリのルートで次を実行して `cube_shaders.h` を再生成し、GLSL と一緒にコミットしてください。
-
-```powershell
-./tools/generate_cube_shaders.ps1
-./gradlew.bat :app:assembleDebug --no-daemon --console=plain
-```
-
-生成スクリプトは各 GLSL の SHA-256 をヘッダーに記録します。Gradle の `checkCubeShaders` タスクは APK ビルド前に 3 ファイルのハッシュを照合し、不一致なら再生成を促してビルドを失敗させます。`./tools/verify.ps1` と CI の `Verify` ワークフローでも APK ビルドを通じて同じ検査を実行します。検査と通常の APK ビルドに `glslc` は不要です。
+Shader は `app/src/main/cpp/cube.vert` と `cube.frag` にあります。変更後は Vulkan SDK の `glslc` を PATH に置き、`./tools/generate_cube_shaders.ps1` を実行して、ビルドに埋め込む `cube_shaders.h` を再生成してください。通常の APK ビルドに Vulkan SDK は不要です。
