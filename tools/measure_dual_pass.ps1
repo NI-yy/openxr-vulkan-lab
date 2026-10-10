@@ -66,6 +66,7 @@ Add-Section 'Thermal before' (Device @('shell','dumpsys','thermalservice'))
 Device @('install','-r',$apk) | Out-Null
 Device @('shell','setprop','debug.openxrvulkanlab.mode',$Mode) | Out-Null
 Device @('shell','setprop','debug.openxrvulkanlab.foveation',$Foveation) | Out-Null
+Device @('shell','setprop','debug.openxrvulkanlab.scene','grid-100') | Out-Null
 Device @('logcat','-c') | Out-Null
 Device @('shell','am','force-stop','dev.niyy.openxrvulkanlab') | Out-Null
 Device @('shell','am','start','-n','dev.niyy.openxrvulkanlab/android.app.NativeActivity') | Out-Null

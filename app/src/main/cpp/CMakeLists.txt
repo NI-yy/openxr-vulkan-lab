@@ -24,6 +24,8 @@ find_library(vulkan-lib vulkan REQUIRED)
 set(native_glue "${ANDROID_NDK}/sources/android/native_app_glue")
 add_library(openxr_vulkan_lab SHARED
     main.cpp
+    renderer.cpp
+    scene.cpp
     "${native_glue}/android_native_app_glue.c"
 )
 target_include_directories(openxr_vulkan_lab PRIVATE "${native_glue}")
