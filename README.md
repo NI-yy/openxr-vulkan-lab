@@ -15,14 +15,22 @@ Manifest の Quest 2 宣言は [Meta の Android Manifest 指針](https://develo
 
 ## ビルドと実機確認
 
-クリーンなチェックアウトのルートで、Java と SDK の場所を設定します。`JAVA_HOME` は各自の Java 21 に合わせて変更してください。
+Quest 2 を接続せずに環境確認、ホスト側のシーンテスト、Debug APK ビルドを一度に実行できます。Java 21、Android SDK（Platform 34、Build Tools 34.0.0、NDK 23.2.8568313、CMake 3.22.1）と `g++` または `clang++` を用意し、リポジトリのルートで実行してください。失敗した段階で非ゼロの終了コードになります。CI の `Verify` ワークフローも同じコマンドを実行します。
 
 ```powershell
 $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
-$env:JAVA_HOME = 'C:\Program Files\JetBrains\JetBrains Rider 2025.1.3\jbr'
+# Java 21 は PATH に追加するか、JAVA_HOME にインストール先を設定
+./tools/verify.ps1
+```
+
+Linux でも PowerShell (`pwsh`) から `./tools/verify.ps1` を実行できます。SDK の場所は `ANDROID_HOME`（未設定なら `ANDROID_SDK_ROOT`）で指定します。テスト実行ファイルは `build/host-tests/`、APK は `app/build/outputs/apk/debug/app-debug.apk` に出力されます。初回の OpenXR SDK 取得にはネットワーク接続が必要です。同じ commit のローカルソースがある場合は、後述の `OPENXR_SDK_SOURCE_DIR` を指定できます。
+
+実機確認では、検証コマンドで APK をビルドした後に Quest 2 を接続します。
+
+```powershell
+$env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 & $adb devices -l
-.\gradlew.bat :app:assembleDebug --no-daemon --console=plain
 ```
 
 ビルド成果物は `app/build/outputs/apk/debug/app-debug.apk` です。`adb devices -l` に `device` と表示された Quest 2 にインストールして起動します。
@@ -41,6 +49,20 @@ $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 Issue #6 の Dual Pass 基準性能を測る条件、測定方法、実機結果は [ベンチマーク記録](docs/dual-pass-benchmark.md) を参照してください。`./tools/measure_dual_pass.ps1` で端末情報と計測ログを保存できます。Issue #7 の Multiview 実装、切り替え、比較手順は [Multiview 比較](docs/multiview-benchmark.md) を参照してください。
 
 Issue #8 の固定 Foveated Rendering は、Multiview 時に `debug.openxrvulkanlab.foveation` を `off`（既定）・`low`・`high` にして比較できます。対応拡張や Vulkan 機能が使えない場合は `off` に戻ります。実機測定の条件と結果は [FFR 比較](docs/foveation-benchmark.md) を参照してください。
+
+## シーン切り替え
+
+Issue #9 では OpenXR のフレーム進行を `main.cpp`、Vulkan デバイスと Swapchain を含む描画器を `renderer.cpp`、シーン定義を `scene.cpp` に分けました。描画器のリソースは `Renderer` が所有し、`main.cpp` は描画器の公開操作を呼びます。`debug.openxrvulkanlab.scene` で `clear`（背景のみ）、`single-cube`（正面に立方体1個）、`grid-100`（従来の基準シーン）を選べます。未設定時は `grid-100` です。
+
+```powershell
+& $adb -d shell setprop debug.openxrvulkanlab.scene single-cube
+& $adb -d shell setprop debug.openxrvulkanlab.scene clear
+& $adb -d shell setprop debug.openxrvulkanlab.scene grid-100
+```
+
+アプリの起動中でも次のフレームから反映されます。切り替えるとウォームアップと計測サンプルをリセットし、`Scene selected: ...; benchmark reset` をログに出します。`Benchmark complete` にもシーン名を記録します。既存の計測スクリプトは測定前に `grid-100` を指定するため、基準条件は従来どおりです。未知の名前は警告を出し、現在のシーンを維持します。
+
+Quest 2 を接続しなくても、上記の `./tools/verify.ps1` で APK のビルドとシーン名、立方体数、従来の格子配置を検証できます。実機での両眼表示と GPU 時間の測定は、Quest を接続した日にまとめて行います。
 
 2026-10-03 に Quest 2 で取得した[左右の目の画面キャプチャ](docs/quest2-clear-color.png)は、Issue #4 のクリア色実装時の記録です。
 

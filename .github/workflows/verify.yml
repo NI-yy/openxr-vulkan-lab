@@ -1,0 +1,23 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            'platforms;android-34' 'build-tools;34.0.0' \
+            'ndk;23.2.8568313' 'cmake;3.22.1'
+      - name: Verify environment, host scene, and APK
+        shell: pwsh
+        run: ./tools/verify.ps1
