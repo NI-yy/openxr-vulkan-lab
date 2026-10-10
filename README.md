@@ -40,6 +40,8 @@ $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
 
 Issue #6 の Dual Pass 基準性能を測る条件、測定方法、実機結果は [ベンチマーク記録](docs/dual-pass-benchmark.md) を参照してください。`./tools/measure_dual_pass.ps1` で端末情報と計測ログを保存できます。Issue #7 の Multiview 実装、切り替え、比較手順は [Multiview 比較](docs/multiview-benchmark.md) を参照してください。
 
+Issue #8 の固定 Foveated Rendering は、Multiview 時に `debug.openxrvulkanlab.foveation` を `off`（既定）・`low`・`high` にして比較できます。対応拡張や Vulkan 機能が使えない場合は `off` に戻ります。実機測定の条件と結果は [FFR 比較](docs/foveation-benchmark.md) を参照してください。
+
 2026-10-03 に Quest 2 で取得した[左右の目の画面キャプチャ](docs/quest2-clear-color.png)は、Issue #4 のクリア色実装時の記録です。
 
 Issue #5 の立方体実装でも、2026-10-03 に Quest 2 で[左右の目の画面キャプチャ](docs/quest2-cube.png)を取得し、両目に赤い前面が描かれることとフレーム進行を確認しました。頭部移動時の空間固定と奥行きの見え方は、ヘッドセットを装着しての確認が必要です。

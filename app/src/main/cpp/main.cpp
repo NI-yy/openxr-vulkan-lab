@@ -29,6 +29,14 @@ constexpr uint32_t kGridDepth = 4;
 constexpr uint32_t kCubeCount = kGridSide * kGridSide * kGridDepth;
 constexpr uint32_t kWarmupFrames = 300;
 constexpr uint32_t kMeasuredFrames = 1800;
+enum class Foveation { Off, Low, High };
+const char* FoveationName(Foveation level) {
+    switch (level) {
+        case Foveation::Low: return "low";
+        case Foveation::High: return "high";
+        default: return "off";
+    }
+}
 using Clock = std::chrono::steady_clock;
 
 struct Mat4 { float v[16]{}; };
@@ -148,7 +156,9 @@ struct EyeSwapchain {
     uint32_t width = 0;
     uint32_t height = 0;
     std::vector<XrSwapchainImageVulkan2KHR> images;
+    std::vector<XrSwapchainImageFoveationVulkanFB> densityImages;
     std::vector<VkImageView> views;
+    std::vector<VkImageView> densityViews;
     std::vector<VkFramebuffer> framebuffers;
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthMemory = VK_NULL_HANDLE;
@@ -180,6 +190,18 @@ struct State {
     bool multiviewRequested = true;
     bool multiviewSupported = false;
     bool useMultiview = false;
+    Foveation requestedFoveation = Foveation::Off;
+    Foveation foveation = Foveation::Off;
+    bool xrFoveationSupported = false;
+    bool vkFoveationSupported = false;
+    XrFoveationProfileFB foveationProfile = XR_NULL_HANDLE;
+    PFN_xrDestroyFoveationProfileFB destroyFoveationProfile = nullptr;
+    PFN_xrCreateFoveationProfileFB createFoveationProfile = nullptr;
+    PFN_xrUpdateSwapchainFB updateSwapchain = nullptr;
+    VkPhysicalDeviceFragmentDensityMapFeaturesEXT densityFeatures{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT};
+    VkPhysicalDeviceFragmentDensityMap2FeaturesEXT density2Features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_2_FEATURES_EXT};
     std::array<EyeSwapchain, kEyeCount> eyes;
     std::array<XrView, kEyeCount> views{};
     XrEnvironmentBlendMode blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -233,7 +255,7 @@ int32_t OnInput(android_app* app, AInputEvent* event) {
     return 0;
 }
 
-bool ExtensionsAvailable() {
+bool ExtensionsAvailable(State& state) {
     uint32_t count = 0;
     if (!XrOk("xrEnumerateInstanceExtensionProperties(count)",
               xrEnumerateInstanceExtensionProperties(nullptr, 0, &count, nullptr))) return false;
@@ -255,6 +277,20 @@ bool ExtensionsAvailable() {
                             "OpenXR extension %s: %s", required, found ? "available" : "missing");
         complete &= found;
     }
+    state.xrFoveationSupported = true;
+    for (const char* optional : {XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME,
+                                 XR_FB_FOVEATION_EXTENSION_NAME,
+                                 XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
+                                 XR_FB_FOVEATION_VULKAN_EXTENSION_NAME,
+                                 XR_META_VULKAN_SWAPCHAIN_CREATE_INFO_EXTENSION_NAME}) {
+        const bool found = std::any_of(available.begin(), available.end(),
+            [optional](const XrExtensionProperties& entry) {
+                return std::strcmp(entry.extensionName, optional) == 0;
+            });
+        __android_log_print(ANDROID_LOG_INFO, kTag, "OpenXR extension %s: %s",
+                            optional, found ? "available" : "missing");
+        state.xrFoveationSupported &= found;
+    }
     return complete;
 }
 
@@ -266,20 +302,25 @@ bool InitInstance(android_app* app, State& state) {
     loader.applicationContext = app->activity->clazz;
     if (!XrOk("xrInitializeLoaderKHR", initialize(
             reinterpret_cast<const XrLoaderInitInfoBaseHeaderKHR*>(&loader)))) return false;
-    if (!ExtensionsAvailable()) return false;
+    if (!ExtensionsAvailable(state)) return false;
 
     XrInstanceCreateInfoAndroidKHR android{XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
     android.applicationVM = app->activity->vm;
     android.applicationActivity = app->activity->clazz;
     const char* extensions[] = {XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
                                 XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME,
-                                XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME};
+                                XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,
+                                XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME,
+                                XR_FB_FOVEATION_EXTENSION_NAME,
+                                XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
+                                XR_FB_FOVEATION_VULKAN_EXTENSION_NAME,
+                                XR_META_VULKAN_SWAPCHAIN_CREATE_INFO_EXTENSION_NAME};
     XrInstanceCreateInfo info{XR_TYPE_INSTANCE_CREATE_INFO};
     info.next = &android;
     std::strncpy(info.applicationInfo.applicationName, "OpenXR Vulkan Lab",
                  XR_MAX_APPLICATION_NAME_SIZE - 1);
     info.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
-    info.enabledExtensionCount = 3;
+    info.enabledExtensionCount = state.xrFoveationSupported ? 8 : 3;
     info.enabledExtensionNames = extensions;
     if (!XrOk("xrCreateInstance", xrCreateInstance(&info, &state.instance))) return false;
 
@@ -390,6 +431,47 @@ bool InitSession(State& state) {
                         "Vulkan multiview: supported=%u requested=%u selected=%s",
                         state.multiviewSupported, state.multiviewRequested,
                         state.useMultiview ? "multiview" : "dual-pass");
+    uint32_t extensionCount = 0;
+    if (!VkOk("vkEnumerateDeviceExtensionProperties(count)",
+            vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr,
+                                                 &extensionCount, nullptr))) return false;
+    std::vector<VkExtensionProperties> deviceExtensions(extensionCount);
+    if (!VkOk("vkEnumerateDeviceExtensionProperties(list)",
+            vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr,
+                                                 &extensionCount, deviceExtensions.data()))) return false;
+    bool densityExtension = false;
+    bool density2Extension = false;
+    for (const char* name : {VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME,
+                             VK_EXT_FRAGMENT_DENSITY_MAP_2_EXTENSION_NAME}) {
+        const bool found = std::any_of(deviceExtensions.begin(), deviceExtensions.end(),
+            [name](const VkExtensionProperties& entry) {
+                return std::strcmp(entry.extensionName, name) == 0;
+            });
+        __android_log_print(ANDROID_LOG_INFO, kTag, "Vulkan extension %s: %s",
+                            name, found ? "available" : "missing");
+        if (std::strcmp(name, VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME) == 0)
+            densityExtension = found;
+        else density2Extension = found;
+    }
+    if (densityExtension && density2Extension && application.apiVersion >= VK_API_VERSION_1_1) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features.pNext = &state.densityFeatures;
+        state.densityFeatures.pNext = &state.density2Features;
+        vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+        state.vkFoveationSupported = state.densityFeatures.fragmentDensityMap == VK_TRUE;
+        __android_log_print(ANDROID_LOG_INFO, kTag,
+            "Vulkan fragment density features: map=%u dynamic=%u nonSubsampled=%u deferred=%u",
+            state.densityFeatures.fragmentDensityMap,
+            state.densityFeatures.fragmentDensityMapDynamic,
+            state.densityFeatures.fragmentDensityMapNonSubsampledImages,
+            state.density2Features.fragmentDensityMapDeferred);
+    }
+    state.foveation = state.useMultiview && state.xrFoveationSupported &&
+        state.vkFoveationSupported ? state.requestedFoveation : Foveation::Off;
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+        "Foveation: requested=%s xrSupported=%u vkSupported=%u selected=%s",
+        FoveationName(state.requestedFoveation), state.xrFoveationSupported,
+        state.vkFoveationSupported, FoveationName(state.foveation));
     state.timestampPeriodNs = deviceProperties.limits.timestampPeriod;
     state.timestampValidBits = families[graphicsFamily].timestampValidBits;
     __android_log_print(ANDROID_LOG_INFO, kTag,
@@ -408,6 +490,16 @@ bool InitSession(State& state) {
     if (state.useMultiview) {
         enabledMultiview.multiview = VK_TRUE;
         vkDeviceInfo.pNext = &enabledMultiview;
+    }
+    const char* foveationDeviceExtensions[] = {
+        VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME,
+        VK_EXT_FRAGMENT_DENSITY_MAP_2_EXTENSION_NAME};
+    if (state.foveation != Foveation::Off) {
+        state.densityFeatures.pNext = &state.density2Features;
+        state.density2Features.pNext = state.useMultiview ? &enabledMultiview : nullptr;
+        vkDeviceInfo.pNext = &state.densityFeatures;
+        vkDeviceInfo.enabledExtensionCount = 2;
+        vkDeviceInfo.ppEnabledExtensionNames = foveationDeviceExtensions;
     }
     XrVulkanDeviceCreateInfoKHR xrDeviceInfo{XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
     xrDeviceInfo.systemId = state.system;
@@ -432,6 +524,11 @@ bool InitSession(State& state) {
     sessionInfo.systemId = state.system;
     if (!XrOk("xrCreateSession", xrCreateSession(state.instance, &sessionInfo, &state.session))) return false;
     __android_log_print(ANDROID_LOG_INFO, kTag, "OpenXR session created (graphics queue=%u)", graphicsFamily);
+    if (state.foveation != Foveation::Off) {
+        if (!Load(state.instance, "xrCreateFoveationProfileFB", &state.createFoveationProfile) ||
+            !Load(state.instance, "xrDestroyFoveationProfileFB", &state.destroyFoveationProfile) ||
+            !Load(state.instance, "xrUpdateSwapchainFB", &state.updateSwapchain)) return false;
+    }
     PFN_xrGetDisplayRefreshRateFB getRefreshRate = nullptr;
     if (!Load(state.instance, "xrGetDisplayRefreshRateFB", &getRefreshRate)) return false;
     float refreshRate = 0;
@@ -597,6 +694,7 @@ bool InitDepth(State& state, EyeSwapchain& eye) {
     image.extent = {eye.width, eye.height, 1};
     image.mipLevels = 1;
     image.arrayLayers = state.useMultiview ? kEyeCount : 1;
+    if (state.foveation != Foveation::Off) image.flags |= VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT;
     image.samples = VK_SAMPLE_COUNT_1_BIT;
     image.tiling = VK_IMAGE_TILING_OPTIMAL;
     image.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -691,7 +789,16 @@ bool InitSwapchains(State& state) {
     depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    const VkAttachmentDescription attachments[] = {attachment, depthAttachment};
+    VkAttachmentDescription densityAttachment{};
+    densityAttachment.format = VK_FORMAT_R8G8_UNORM;
+    densityAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    densityAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    densityAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    densityAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    densityAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    densityAttachment.initialLayout = VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT;
+    densityAttachment.finalLayout = VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT;
+    const VkAttachmentDescription attachments[] = {attachment, depthAttachment, densityAttachment};
     VkAttachmentReference colorReference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkAttachmentReference depthReference{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{};
@@ -700,7 +807,7 @@ bool InitSwapchains(State& state) {
     subpass.pColorAttachments = &colorReference;
     subpass.pDepthStencilAttachment = &depthReference;
     VkRenderPassCreateInfo renderPassInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    renderPassInfo.attachmentCount = 2;
+    renderPassInfo.attachmentCount = state.foveation == Foveation::Off ? 2 : 3;
     renderPassInfo.pAttachments = attachments;
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
@@ -710,6 +817,14 @@ bool InitSwapchains(State& state) {
         multiviewPass.subpassCount = 1;
         multiviewPass.pViewMasks = &viewMask;
         renderPassInfo.pNext = &multiviewPass;
+    }
+    VkAttachmentReference densityReference{2, VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT};
+    VkRenderPassFragmentDensityMapCreateInfoEXT densityPass{
+        VK_STRUCTURE_TYPE_RENDER_PASS_FRAGMENT_DENSITY_MAP_CREATE_INFO_EXT};
+    if (state.foveation != Foveation::Off) {
+        densityPass.fragmentDensityMapAttachment = densityReference;
+        densityPass.pNext = renderPassInfo.pNext;
+        renderPassInfo.pNext = &densityPass;
     }
     if (!VkOk("vkCreateRenderPass", vkCreateRenderPass(
             state.vkDevice, &renderPassInfo, nullptr, &state.renderPass))) return false;
@@ -743,16 +858,55 @@ bool InitSwapchains(State& state) {
         createInfo.faceCount = 1;
         createInfo.arraySize = state.useMultiview ? kEyeCount : 1;
         createInfo.mipCount = 1;
+        XrSwapchainCreateInfoFoveationFB foveationCreate{
+            XR_TYPE_SWAPCHAIN_CREATE_INFO_FOVEATION_FB};
+        XrVulkanSwapchainCreateInfoMETA vulkanCreate{
+            XR_TYPE_VULKAN_SWAPCHAIN_CREATE_INFO_META};
+        if (state.foveation != Foveation::Off) {
+            foveationCreate.flags = XR_SWAPCHAIN_CREATE_FOVEATION_FRAGMENT_DENSITY_MAP_BIT_FB;
+            vulkanCreate.additionalCreateFlags = VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT;
+            foveationCreate.next = &vulkanCreate;
+            createInfo.next = &foveationCreate;
+            createInfo.usageFlags |= XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+        }
         if (!XrOk("xrCreateSwapchain", xrCreateSwapchain(
                 state.session, &createInfo, &eye.handle))) return false;
+        if (state.foveation != Foveation::Off) {
+            if (state.foveationProfile == XR_NULL_HANDLE) {
+                XrFoveationLevelProfileCreateInfoFB level{
+                    XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB};
+                level.level = state.foveation == Foveation::Low
+                    ? XR_FOVEATION_LEVEL_LOW_FB : XR_FOVEATION_LEVEL_HIGH_FB;
+                level.dynamic = XR_FOVEATION_DYNAMIC_DISABLED_FB;
+                XrFoveationProfileCreateInfoFB profile{
+                    XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB};
+                profile.next = &level;
+                if (!XrOk("xrCreateFoveationProfileFB", state.createFoveationProfile(
+                        state.session, &profile, &state.foveationProfile))) return false;
+            }
+            XrSwapchainStateFoveationFB foveationState{XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB};
+            foveationState.profile = state.foveationProfile;
+            if (!XrOk("xrUpdateSwapchainFB", state.updateSwapchain(eye.handle,
+                    reinterpret_cast<const XrSwapchainStateBaseHeaderFB*>(&foveationState)))) return false;
+        }
         uint32_t imageCount = 0;
         if (!XrOk("xrEnumerateSwapchainImages(count)", xrEnumerateSwapchainImages(
                 eye.handle, 0, &imageCount, nullptr))) return false;
         if (imageCount == 0) return false;
         eye.images.resize(imageCount);
+        if (state.foveation != Foveation::Off) {
+            eye.densityImages.resize(imageCount);
+            eye.densityViews.resize(imageCount, VK_NULL_HANDLE);
+        }
         eye.views.resize(imageCount, VK_NULL_HANDLE);
         eye.framebuffers.resize(imageCount, VK_NULL_HANDLE);
-        for (auto& image : eye.images) image.type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR;
+        for (uint32_t i = 0; i < imageCount; ++i) {
+            eye.images[i].type = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR;
+            if (state.foveation != Foveation::Off) {
+                eye.densityImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_FOVEATION_VULKAN_FB;
+                eye.images[i].next = &eye.densityImages[i];
+            }
+        }
         if (!XrOk("xrEnumerateSwapchainImages(list)", xrEnumerateSwapchainImages(
                 eye.handle, imageCount, &imageCount,
                 reinterpret_cast<XrSwapchainImageBaseHeader*>(eye.images.data())))) return false;
@@ -767,10 +921,30 @@ bool InitSwapchains(State& state) {
                                          state.useMultiview ? kEyeCount : 1};
             if (!VkOk("vkCreateImageView", vkCreateImageView(
                     state.vkDevice, &viewInfo, nullptr, &eye.views[imageIndex]))) return false;
+            if (state.foveation != Foveation::Off) {
+                const auto& density = eye.densityImages[imageIndex];
+                if (density.image == VK_NULL_HANDLE || density.width == 0 || density.height == 0) {
+                    __android_log_print(ANDROID_LOG_ERROR, kTag,
+                        "Missing fragment density map for swapchain %u image %u", eyeIndex, imageIndex);
+                    return false;
+                }
+                VkImageViewCreateInfo densityViewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+                densityViewInfo.image = density.image;
+                densityViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                densityViewInfo.format = VK_FORMAT_R8G8_UNORM;
+                densityViewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, kEyeCount};
+                if (!VkOk("vkCreateImageView(fragment density map)", vkCreateImageView(
+                        state.vkDevice, &densityViewInfo, nullptr,
+                        &eye.densityViews[imageIndex]))) return false;
+                __android_log_print(ANDROID_LOG_INFO, kTag,
+                    "Fragment density map %u/%u: %ux%u", eyeIndex, imageIndex,
+                    density.width, density.height);
+            }
             VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
             framebufferInfo.renderPass = state.renderPass;
-            const VkImageView framebufferAttachments[] = {eye.views[imageIndex], eye.depthView};
-            framebufferInfo.attachmentCount = 2;
+            const VkImageView framebufferAttachments[] = {eye.views[imageIndex], eye.depthView,
+                state.foveation != Foveation::Off ? eye.densityViews[imageIndex] : VK_NULL_HANDLE};
+            framebufferInfo.attachmentCount = state.foveation == Foveation::Off ? 2 : 3;
             framebufferInfo.pAttachments = framebufferAttachments;
             framebufferInfo.width = eye.width;
             framebufferInfo.height = eye.height;
@@ -805,10 +979,11 @@ bool InitSwapchains(State& state) {
             state.vkDevice, &queryInfo, nullptr, &state.timestampPool))) return false;
     state.samples.reserve(kMeasuredFrames);
     __android_log_print(ANDROID_LOG_INFO, kTag,
-                        "Benchmark config: %s cubes=%u resolution=%ux%u per eye samples=1 warmup=%u measure=%u colorFormat=%d depthFormat=%d",
+                        "Benchmark config: %s cubes=%u resolution=%ux%u per eye samples=1 warmup=%u measure=%u colorFormat=%d depthFormat=%d foveation=%s",
                         state.useMultiview ? "multiview" : "dual-pass",
                         kCubeCount, kBenchmarkWidth, kBenchmarkHeight, kWarmupFrames,
-                        kMeasuredFrames, colorFormat, state.depthFormat);
+                        kMeasuredFrames, colorFormat, state.depthFormat,
+                        FoveationName(state.foveation));
     for (auto& view : state.views) view.type = XR_TYPE_VIEW;
     return true;
 }
@@ -1101,11 +1276,16 @@ void Shutdown(State& state) {
         for (auto view : eye.views) {
             if (view != VK_NULL_HANDLE) vkDestroyImageView(state.vkDevice, view, nullptr);
         }
+        for (auto view : eye.densityViews) {
+            if (view != VK_NULL_HANDLE) vkDestroyImageView(state.vkDevice, view, nullptr);
+        }
         if (eye.depthView != VK_NULL_HANDLE) vkDestroyImageView(state.vkDevice, eye.depthView, nullptr);
         if (eye.depthImage != VK_NULL_HANDLE) vkDestroyImage(state.vkDevice, eye.depthImage, nullptr);
         if (eye.depthMemory != VK_NULL_HANDLE) vkFreeMemory(state.vkDevice, eye.depthMemory, nullptr);
         if (eye.handle != XR_NULL_HANDLE) XrOk("xrDestroySwapchain", xrDestroySwapchain(eye.handle));
     }
+    if (state.foveationProfile != XR_NULL_HANDLE && state.destroyFoveationProfile)
+        XrOk("xrDestroyFoveationProfileFB", state.destroyFoveationProfile(state.foveationProfile));
     if (state.renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(state.vkDevice, state.renderPass, nullptr);
     if (state.space != XR_NULL_HANDLE) XrOk("xrDestroySpace", xrDestroySpace(state.space));
     if (state.session != XR_NULL_HANDLE) XrOk("xrDestroySession", xrDestroySession(state.session));
@@ -1127,6 +1307,13 @@ void android_main(android_app* app) {
         __android_log_print(ANDROID_LOG_WARN, kTag,
                             "Unknown render mode '%s'; selecting multiview when supported", mode);
     }
+    char foveation[PROP_VALUE_MAX]{};
+    __system_property_get("debug.openxrvulkanlab.foveation", foveation);
+    if (std::strcmp(foveation, "low") == 0) state.requestedFoveation = Foveation::Low;
+    else if (std::strcmp(foveation, "high") == 0) state.requestedFoveation = Foveation::High;
+    else if (foveation[0] != '\0' && std::strcmp(foveation, "off") != 0)
+        __android_log_print(ANDROID_LOG_WARN, kTag,
+            "Unknown foveation level '%s'; selecting off", foveation);
     bool operationSucceeded = InitInstance(app, state);
     if (operationSucceeded) operationSucceeded = InitSession(state);
     if (operationSucceeded) operationSucceeded = InitSwapchains(state);

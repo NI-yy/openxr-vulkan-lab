@@ -1,6 +1,8 @@
 param(
     [ValidateSet('dual-pass', 'multiview')]
     [string]$Mode = 'dual-pass',
+    [ValidateSet('off', 'low', 'high')]
+    [string]$Foveation = 'off',
     [string]$OutputPath = '',
     [int]$TimeoutSeconds = 180
 )
@@ -55,30 +57,40 @@ Add-Section 'Device' @(
     "build=$(Device @('shell','getprop','ro.build.fingerprint'))",
     "security_patch=$(Device @('shell','getprop','ro.build.version.security_patch'))"
 )
+Add-Section 'Foveation overrides' @(
+    "system_level=$(Device @('shell','getprop','debug.oculus.foveation.level'))",
+    "system_dynamic=$(Device @('shell','getprop','debug.oculus.foveation.dynamic'))"
+)
 Add-Section 'Thermal before' (Device @('shell','dumpsys','thermalservice'))
 
 Device @('install','-r',$apk) | Out-Null
 Device @('shell','setprop','debug.openxrvulkanlab.mode',$Mode) | Out-Null
+Device @('shell','setprop','debug.openxrvulkanlab.foveation',$Foveation) | Out-Null
 Device @('logcat','-c') | Out-Null
 Device @('shell','am','force-stop','dev.niyy.openxrvulkanlab') | Out-Null
 Device @('shell','am','start','-n','dev.niyy.openxrvulkanlab/android.app.NativeActivity') | Out-Null
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $complete = $false
 $wrongMode = $false
+$wrongFoveation = $false
 do {
     Start-Sleep -Seconds 3
     $log = Device @('logcat','-d','-s','OpenXRVulkanLab:I','*:S')
     $complete = [bool]($log | Select-String 'Benchmark complete:')
     $wrongMode = [bool]($log | Select-String 'Benchmark config: ') -and
         -not [bool]($log | Select-String "Benchmark config: $Mode ")
-} until ($complete -or $wrongMode -or (Get-Date) -ge $deadline)
+    $wrongFoveation = [bool]($log | Select-String 'Benchmark config: ') -and
+        -not [bool]($log | Select-String "foveation=$Foveation")
+} until ($complete -or $wrongMode -or $wrongFoveation -or (Get-Date) -ge $deadline)
 
 $selected = [bool]($log | Select-String "Benchmark config: $Mode ")
-Add-Section 'Measurement' @("finished=$(Get-Date -Format o)", "requested_mode=$Mode", "selected_mode_matched=$selected", "complete=$complete")
+$foveationSelected = [bool]($log | Select-String "Benchmark config: .* foveation=$Foveation")
+Add-Section 'Measurement' @("finished=$(Get-Date -Format o)", "requested_mode=$Mode", "selected_mode_matched=$selected", "requested_foveation=$Foveation", "selected_foveation_matched=$foveationSelected", "complete=$complete")
 Add-Section 'Application log' $log
 Add-Section 'Thermal after' (Device @('shell','dumpsys','thermalservice'))
 $lines | Set-Content -LiteralPath $destination -Encoding utf8
 Device @('shell','am','force-stop','dev.niyy.openxrvulkanlab') | Out-Null
 Write-Host "Saved $destination"
 if (-not $selected) { throw "Requested render mode was not selected; inspect $destination" }
+if (-not $foveationSelected) { throw "Requested foveation level was not selected; inspect $destination" }
 if (-not $complete) { throw "Benchmark did not finish within $TimeoutSeconds seconds; inspect $destination" }
