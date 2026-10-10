@@ -18,6 +18,21 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
             'platforms;android-34' 'build-tools;34.0.0' \
             'ndk;23.2.8568313' 'cmake;3.22.1'
+      - name: Install pinned Vulkan SDK for shader generation
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/vulkan-sdk.tar.xz" \
+            https://sdk.lunarg.com/sdk/download/1.4.341.1/linux/vulkan_sdk.tar.xz
+          echo "3bf0f762afb6c79bc6a9d9fb5998745ccff928800a29619b501ed9de7fd9789b  $RUNNER_TEMP/vulkan-sdk.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/vulkan-sdk"
+          tar -xf "$RUNNER_TEMP/vulkan-sdk.tar.xz" -C "$RUNNER_TEMP/vulkan-sdk"
+          echo "$RUNNER_TEMP/vulkan-sdk/1.4.341.1/x86_64/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/vulkan-sdk/1.4.341.1/x86_64/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+      - name: Check generated shader header
+        shell: pwsh
+        run: |
+          ./tools/generate_cube_shaders.ps1
+          git diff --exit-code -- app/src/main/cpp/cube_shaders.h
+          if ($LASTEXITCODE -ne 0) { throw 'cube_shaders.h is stale. Regenerate and commit it.' }
       - name: Verify environment, host scene, and APK
         shell: pwsh
         run: ./tools/verify.ps1
