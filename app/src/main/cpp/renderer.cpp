@@ -32,6 +32,7 @@ struct EyeSwapchain {
 
 struct RenderState {
     VkInstance vkInstance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     VkPhysicalDevice vkPhysicalDevice = VK_NULL_HANDLE;
     VkDevice vkDevice = VK_NULL_HANDLE;
     VkQueue vkQueue = VK_NULL_HANDLE;
@@ -67,6 +68,19 @@ struct RenderState {
 };
 
 namespace {
+VKAPI_ATTR VkBool32 VKAPI_CALL ValidationMessage(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT,
+    const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
+    const int priority = (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        ? ANDROID_LOG_ERROR : (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        ? ANDROID_LOG_WARN : ANDROID_LOG_INFO;
+    __android_log_print(priority, "VulkanValidation", "%s: %s",
+        data && data->pMessageIdName ? data->pMessageIdName : "message",
+        data && data->pMessage ? data->pMessage : "(empty)");
+    return VK_FALSE;
+}
+
 // A 40 cm cube centered at the model origin. Each face has its own color.
 constexpr std::array<Vertex, 24> kCubeVertices{{
     // Front (+Z), red
@@ -169,7 +183,7 @@ Mat4 CubeModel(const CubePosition& position) {
 namespace {
 bool InitDevice(RenderState& state, XrInstance instance, XrSystemId system,
                 bool xrFoveationSupported, bool multiviewRequested,
-                Foveation requestedFoveation) {
+                Foveation requestedFoveation, bool validationRequested) {
     state.xrFoveationSupported = xrFoveationSupported;
     state.multiviewRequested = multiviewRequested;
     state.requestedFoveation = requestedFoveation;
@@ -206,14 +220,137 @@ bool InitDevice(RenderState& state, XrInstance instance, XrSystemId system,
         ? VK_API_VERSION_1_1 : VK_API_VERSION_1_0;
     VkInstanceCreateInfo vkInstanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     vkInstanceInfo.pApplicationInfo = &application;
+    constexpr const char* validationLayer = "VK_LAYER_KHRONOS_validation";
+    bool validationSelected = false;
+#if defined(NDEBUG)
+    if (validationRequested) {
+        __android_log_print(ANDROID_LOG_WARN, kTag,
+            "Vulkan validation: requested=on selected=off reason=non-debug build");
+    }
+#else
+    if (validationRequested) {
+        uint32_t count = 0;
+        VkResult enumerate = vkEnumerateInstanceLayerProperties(&count, nullptr);
+        std::vector<VkLayerProperties> layers(count);
+        if (enumerate == VK_SUCCESS)
+            enumerate = vkEnumerateInstanceLayerProperties(&count, layers.data());
+        if (enumerate != VK_SUCCESS) {
+            __android_log_print(ANDROID_LOG_WARN, kTag,
+                "Vulkan validation unavailable: layer enumeration failed (%d)", enumerate);
+        } else {
+            validationSelected = std::any_of(layers.begin(), layers.end(),
+                [validationLayer](const VkLayerProperties& layer) {
+                    return std::strcmp(layer.layerName, validationLayer) == 0;
+                });
+            if (!validationSelected)
+                __android_log_print(ANDROID_LOG_WARN, kTag,
+                    "Vulkan validation unavailable: %s not found among %u instance layers; install an arm64 Android layer",
+                    validationLayer, count);
+        }
+    }
+#endif
+    if (validationSelected) {
+        vkInstanceInfo.enabledLayerCount = 1;
+        vkInstanceInfo.ppEnabledLayerNames = &validationLayer;
+    }
+    const char* debugUtilsExtension = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+    bool debugUtilsAvailable = false;
+    std::vector<const char*> instanceExtensions;
+    if (validationSelected) {
+        // The OpenXR runtime enables VK_KHR_surface_protected_capabilities on
+        // Quest 2, so include its instance-extension dependencies explicitly.
+        uint32_t coreExtensionCount = 0;
+        VkResult coreResult = vkEnumerateInstanceExtensionProperties(
+            nullptr, &coreExtensionCount, nullptr);
+        std::vector<VkExtensionProperties> coreExtensions(coreExtensionCount);
+        if (coreResult == VK_SUCCESS)
+            coreResult = vkEnumerateInstanceExtensionProperties(
+                nullptr, &coreExtensionCount, coreExtensions.data());
+        if (coreResult == VK_SUCCESS) {
+            for (const char* name : {VK_KHR_SURFACE_EXTENSION_NAME,
+                                     VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME}) {
+                if (std::any_of(coreExtensions.begin(), coreExtensions.end(),
+                    [name](const VkExtensionProperties& extension) {
+                        return std::strcmp(extension.extensionName, name) == 0;
+                    })) {
+                    instanceExtensions.push_back(name);
+                }
+            }
+        }
+        for (const char* source : {static_cast<const char*>(nullptr), validationLayer}) {
+            uint32_t count = 0;
+            VkResult enumerate = vkEnumerateInstanceExtensionProperties(source, &count, nullptr);
+            std::vector<VkExtensionProperties> extensions(count);
+            if (enumerate == VK_SUCCESS)
+                enumerate = vkEnumerateInstanceExtensionProperties(
+                    source, &count, extensions.data());
+            if (enumerate == VK_SUCCESS) {
+                debugUtilsAvailable |= std::any_of(extensions.begin(), extensions.end(),
+                    [debugUtilsExtension](const VkExtensionProperties& extension) {
+                        return std::strcmp(extension.extensionName, debugUtilsExtension) == 0;
+                    });
+            }
+        }
+        if (debugUtilsAvailable) {
+            instanceExtensions.push_back(debugUtilsExtension);
+        } else {
+            __android_log_print(ANDROID_LOG_WARN, kTag,
+                "Vulkan validation: VK_EXT_debug_utils unavailable; check Vulkan loader logcat messages");
+        }
+        vkInstanceInfo.enabledExtensionCount =
+            static_cast<uint32_t>(instanceExtensions.size());
+        vkInstanceInfo.ppEnabledExtensionNames = instanceExtensions.data();
+    }
     XrVulkanInstanceCreateInfoKHR xrInstanceInfo{XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR};
     xrInstanceInfo.systemId = system;
     xrInstanceInfo.pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
     xrInstanceInfo.vulkanCreateInfo = &vkInstanceInfo;
     VkResult vkResult = VK_SUCCESS;
-    if (!XrOk("xrCreateVulkanInstanceKHR", instanceFn(
-            instance, &xrInstanceInfo, &state.vkInstance, &vkResult)) ||
+    XrResult xrResult = instanceFn(instance, &xrInstanceInfo, &state.vkInstance, &vkResult);
+    if ((XR_FAILED(xrResult) || vkResult != VK_SUCCESS) && validationSelected) {
+        __android_log_print(ANDROID_LOG_WARN, kTag,
+            "Vulkan validation unavailable: instance creation failed (XR=%d Vulkan=%d); retrying without validation",
+            xrResult, vkResult);
+        validationSelected = false;
+        vkInstanceInfo.enabledLayerCount = 0;
+        vkInstanceInfo.ppEnabledLayerNames = nullptr;
+        vkInstanceInfo.enabledExtensionCount = 0;
+        vkInstanceInfo.ppEnabledExtensionNames = nullptr;
+        state.vkInstance = VK_NULL_HANDLE;
+        vkResult = VK_SUCCESS;
+        xrResult = instanceFn(instance, &xrInstanceInfo, &state.vkInstance, &vkResult);
+    }
+    if (!XrOk("xrCreateVulkanInstanceKHR", xrResult) ||
         !VkOk("xrCreateVulkanInstanceKHR/Vulkan", vkResult)) return false;
+    __android_log_print(ANDROID_LOG_INFO, kTag,
+        "Vulkan validation: requested=%s selected=%s layer=%s",
+        validationRequested ? "on" : "off", validationSelected ? "on" : "off",
+        validationSelected ? validationLayer : "none");
+    if (validationSelected && debugUtilsAvailable) {
+        auto createMessenger = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(state.vkInstance, "vkCreateDebugUtilsMessengerEXT"));
+        if (createMessenger) {
+            VkDebugUtilsMessengerCreateInfoEXT messengerInfo{
+                VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
+            messengerInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+            messengerInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            messengerInfo.pfnUserCallback = ValidationMessage;
+            const VkResult result = createMessenger(state.vkInstance, &messengerInfo,
+                                                    nullptr, &state.debugMessenger);
+            if (result == VK_SUCCESS)
+                __android_log_print(ANDROID_LOG_INFO, kTag,
+                    "Vulkan validation: debug messenger active (tag=VulkanValidation)");
+            else
+                __android_log_print(ANDROID_LOG_WARN, kTag,
+                    "Vulkan validation: debug messenger creation failed (%d)", result);
+        } else {
+            __android_log_print(ANDROID_LOG_WARN, kTag,
+                "Vulkan validation: vkCreateDebugUtilsMessengerEXT unavailable");
+        }
+    }
 
     XrVulkanGraphicsDeviceGetInfoKHR getInfo{XR_TYPE_VULKAN_GRAPHICS_DEVICE_GET_INFO_KHR};
     getInfo.systemId = system;
@@ -887,6 +1024,11 @@ void DestroyRenderer(RenderState& state) {
         XrOk("xrDestroyFoveationProfileFB", state.destroyFoveationProfile(state.foveationProfile));
     if (state.renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(state.vkDevice, state.renderPass, nullptr);
     if (state.vkDevice != VK_NULL_HANDLE) vkDestroyDevice(state.vkDevice, nullptr);
+    if (state.debugMessenger != VK_NULL_HANDLE) {
+        auto destroyMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(state.vkInstance, "vkDestroyDebugUtilsMessengerEXT"));
+        if (destroyMessenger) destroyMessenger(state.vkInstance, state.debugMessenger, nullptr);
+    }
     if (state.vkInstance != VK_NULL_HANDLE) vkDestroyInstance(state.vkInstance, nullptr);
 }
 }  // namespace
@@ -896,9 +1038,9 @@ Renderer::~Renderer() { Destroy(); }
 
 bool Renderer::InitializeDevice(XrInstance instance, XrSystemId system,
                                 bool xrFoveationSupported, bool multiviewRequested,
-                                Foveation requestedFoveation) {
+                                Foveation requestedFoveation, bool validationRequested) {
     return InitDevice(*state_, instance, system, xrFoveationSupported,
-                      multiviewRequested, requestedFoveation);
+                      multiviewRequested, requestedFoveation, validationRequested);
 }
 
 XrGraphicsBindingVulkan2KHR Renderer::GraphicsBinding() const {

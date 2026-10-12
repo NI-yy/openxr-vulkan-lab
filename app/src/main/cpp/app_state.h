@@ -24,6 +24,7 @@ struct State {
     Renderer renderer;
     bool multiviewRequested = true;
     Foveation requestedFoveation = Foveation::Off;
+    bool validationRequested = false;
     bool xrFoveationSupported = false;
     std::array<XrView, kEyeCount> views{};
     XrEnvironmentBlendMode blend = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;

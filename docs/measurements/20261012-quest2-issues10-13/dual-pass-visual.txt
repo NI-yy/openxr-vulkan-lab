@@ -1,0 +1,46 @@
+--------- beginning of main
+10-12 21:30:35.327  5396  5433 I OpenXRVulkanLab: native app started
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_KHR_android_create_instance: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_KHR_vulkan_enable2: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_FB_display_refresh_rate: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_FB_swapchain_update_state: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_FB_foveation: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_FB_foveation_configuration: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_FB_foveation_vulkan: available
+10-12 21:30:35.452  5396  5433 I OpenXRVulkanLab: OpenXR extension XR_META_vulkan_swapchain_create_info: available
+10-12 21:30:35.557  5396  5433 I OpenXRVulkanLab: OpenXR runtime: Oculus
+10-12 21:30:35.557  5396  5433 I OpenXRVulkanLab: xrGetSystem: 0
+10-12 21:30:35.557  5396  5433 I OpenXRVulkanLab: Vulkan required API: 1.0 to 1.2
+10-12 21:30:35.579  5396  5433 I OpenXRVulkanLab: Vulkan validation: requested=off selected=off layer=none
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: Vulkan multiview feature=1 maxViews=6
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: Vulkan multiview: supported=1 requested=0 selected=dual-pass
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: Vulkan extension VK_EXT_fragment_density_map: available
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: Vulkan extension VK_EXT_fragment_density_map2: available
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: Vulkan fragment density features: map=1 dynamic=0 nonSubsampled=1 deferred=1
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: Foveation: requested=off xrSupported=1 vkSupported=1 selected=off
+10-12 21:30:35.581  5396  5433 I OpenXRVulkanLab: GPU: Adreno (TM) 650; timestampValidBits=48; timestampPeriodNs=52.083332
+10-12 21:30:35.708  5396  5433 I OpenXRVulkanLab: OpenXR session created (graphics queue=0)
+10-12 21:30:35.708  5396  5433 I OpenXRVulkanLab: OpenXR display refresh rate: 72.00 Hz
+10-12 21:30:35.708  5396  5433 I OpenXRVulkanLab: LOCAL reference space created
+10-12 21:30:35.708  5396  5433 I OpenXRVulkanLab: Environment blend mode: 1
+10-12 21:30:35.708  5396  5433 I OpenXRVulkanLab: Swapchain format: 43
+10-12 21:30:35.721  5396  5433 I OpenXRVulkanLab: Cube geometry and graphics pipeline ready
+10-12 21:30:35.733  5396  5433 I OpenXRVulkanLab: Swapchain 0: 1024x1024, 3 images, 1 layers
+10-12 21:30:35.745  5396  5433 I OpenXRVulkanLab: Swapchain 1: 1024x1024, 3 images, 1 layers
+10-12 21:30:35.745  5396  5433 I OpenXRVulkanLab: Benchmark config: dual-pass cubes=100 resolution=1024x1024 per eye samples=1 warmup=300 measure=1800 colorFormat=43 depthFormat=126 foveation=off scene=grid-100
+10-12 21:30:35.746  5396  5433 I OpenXRVulkanLab: Android activity command: 10
+10-12 21:30:35.750  5396  5433 I OpenXRVulkanLab: Reference space change pending: type=1000426000, poseValid=1
+10-12 21:30:35.750  5396  5433 I OpenXRVulkanLab: Reference space change pending: type=3, poseValid=1
+10-12 21:30:35.750  5396  5433 I OpenXRVulkanLab: OpenXR session state: 1
+10-12 21:30:35.751  5396  5433 I OpenXRVulkanLab: Android activity command: 11
+10-12 21:30:35.787  5396  5433 I OpenXRVulkanLab: OpenXR session state: 2
+10-12 21:30:35.893  5396  5433 I OpenXRVulkanLab: OpenXR session started
+10-12 21:30:35.900  5396  5433 I OpenXRVulkanLab: OpenXR frame 1 completed; shouldRender=1
+10-12 21:30:35.905  5396  5433 I OpenXRVulkanLab: OpenXR session state: 3
+10-12 21:30:35.917  5396  5433 I OpenXRVulkanLab: OpenXR session state: 4
+10-12 21:30:35.917  5396  5433 I OpenXRVulkanLab: OpenXR session state: 5
+10-12 21:30:37.557  5396  5433 I OpenXRVulkanLab: OpenXR frame 120 completed; shouldRender=1
+10-12 21:30:39.228  5396  5433 I OpenXRVulkanLab: OpenXR frame 240 completed; shouldRender=1
+10-12 21:30:40.898  5396  5433 I OpenXRVulkanLab: OpenXR frame 360 completed; shouldRender=1
+10-12 21:30:42.568  5396  5433 I OpenXRVulkanLab: OpenXR frame 480 completed; shouldRender=1
+10-12 21:30:44.240  5396  5433 I OpenXRVulkanLab: OpenXR frame 600 completed; shouldRender=1

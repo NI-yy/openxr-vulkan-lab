@@ -1,0 +1,96 @@
+{
+  "started": "2026-10-12T21:25:58.0567345+09:00",
+  "finished": "2026-10-12T21:28:11.3895678+09:00",
+  "status": "passed",
+  "git_commit": "895209f0c09903a38007b39101628b9600cbd01b",
+  "git_status": [
+    " M .gitignore",
+    " M README.md",
+    " M app/src/main/cpp/app_state.h",
+    " M app/src/main/cpp/main.cpp",
+    " M app/src/main/cpp/renderer.cpp",
+    " M app/src/main/cpp/renderer.h",
+    " M tools/measure_dual_pass.ps1",
+    " M tools/verify.ps1",
+    "?? docs/measurement-suite.md",
+    "?? docs/vulkan-validation.md",
+    "?? tests/fake_adb.ps1",
+    "?? tests/measure_suite_test.ps1",
+    "?? tools/measure_suite.ps1",
+    "?? tools/stage_validation_layer.ps1"
+  ],
+  "apk_path": "app/build/outputs/apk/debug/app-debug.apk",
+  "apk_sha256": "D6CFEA2581686457EC794455F8E6250E34C49EAAC5C15CDD5E03BA8FD079937E",
+  "timeout_seconds": 180,
+  "scene": "grid-100",
+  "validation_requested": "off",
+  "device": {
+    "serial": "<redacted-device-serial>",
+    "model": "Quest 2",
+    "android": "14",
+    "build_fingerprint": "oculus/hollywood/hollywood:14/UP1A.231005.007.A1/52242990035800150:user/abl_signing_keys:release,amss_signing_keys:release,release-keys",
+    "security_patch": "2026-06-04",
+    "foveation_system_level": "",
+    "foveation_system_dynamic": ""
+  },
+  "conditions": [
+    {
+      "mode": "dual-pass",
+      "foveation": "off"
+    },
+    {
+      "mode": "multiview",
+      "foveation": "off"
+    },
+    {
+      "mode": "multiview",
+      "foveation": "low"
+    },
+    {
+      "mode": "multiview",
+      "foveation": "high"
+    }
+  ],
+  "results": [
+    {
+      "mode": "dual-pass",
+      "foveation": "off",
+      "validation_requested": "off",
+      "log": "01-dual-pass-off.txt",
+      "started": "2026-10-12T21:25:58.3617448+09:00",
+      "finished": "2026-10-12T21:26:34.9529953+09:00",
+      "status": "passed",
+      "error": null
+    },
+    {
+      "mode": "multiview",
+      "foveation": "off",
+      "validation_requested": "off",
+      "log": "02-multiview-off.txt",
+      "started": "2026-10-12T21:26:34.9563213+09:00",
+      "finished": "2026-10-12T21:27:07.0274283+09:00",
+      "status": "passed",
+      "error": null
+    },
+    {
+      "mode": "multiview",
+      "foveation": "low",
+      "validation_requested": "off",
+      "log": "03-multiview-low.txt",
+      "started": "2026-10-12T21:27:07.0294542+09:00",
+      "finished": "2026-10-12T21:27:39.1854480+09:00",
+      "status": "passed",
+      "error": null
+    },
+    {
+      "mode": "multiview",
+      "foveation": "high",
+      "validation_requested": "off",
+      "log": "04-multiview-high.txt",
+      "started": "2026-10-12T21:27:39.1872466+09:00",
+      "finished": "2026-10-12T21:28:11.3876557+09:00",
+      "status": "passed",
+      "error": null
+    }
+  ]
+}

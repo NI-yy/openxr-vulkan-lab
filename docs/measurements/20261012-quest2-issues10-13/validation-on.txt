@@ -1,0 +1,54 @@
+--------- beginning of main
+10-12 21:23:16.345  2107  2244 I OpenXRVulkanLab: native app started
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_KHR_android_create_instance: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_KHR_vulkan_enable2: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_FB_display_refresh_rate: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_FB_swapchain_update_state: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_FB_foveation: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_FB_foveation_configuration: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_FB_foveation_vulkan: available
+10-12 21:23:16.710  2107  2244 I OpenXRVulkanLab: OpenXR extension XR_META_vulkan_swapchain_create_info: available
+10-12 21:23:16.794  2107  2244 I OpenXRVulkanLab: OpenXR runtime: Oculus
+10-12 21:23:16.794  2107  2244 I OpenXRVulkanLab: xrGetSystem: 0
+10-12 21:23:16.794  2107  2244 I OpenXRVulkanLab: Vulkan required API: 1.0 to 1.2
+10-12 21:23:16.818  2107  2244 I VALIDATION: Validation Error: [ VUID-vkCreateInstance-ppEnabledExtensionNames-01388 ] | MessageID = 0xe5e52180
+10-12 21:23:16.818  2107  2244 I VALIDATION: vkCreateInstance(): pCreateInfo->ppEnabledExtensionNames[4] Missing extension required by the instance extension VK_KHR_surface_protected_capabilities: VK_KHR_get_surface_capabilities2.
+10-12 21:23:16.818  2107  2244 I VALIDATION: The Vulkan spec states: All required extensions for each extension in the VkInstanceCreateInfo::ppEnabledExtensionNames list must also be present in that list (https://docs.vulkan.org/spec/latest/chapters/initialization.html#VUID-vkCreateInstance-ppEnabledExtensionNames-01388)
+10-12 21:23:16.829  2107  2244 I OpenXRVulkanLab: Vulkan validation: requested=on selected=on layer=VK_LAYER_KHRONOS_validation
+10-12 21:23:16.829  2107  2244 I OpenXRVulkanLab: Vulkan validation: debug messenger active (tag=VulkanValidation)
+10-12 21:23:16.831  2107  2244 I OpenXRVulkanLab: Vulkan multiview feature=1 maxViews=6
+10-12 21:23:16.831  2107  2244 I OpenXRVulkanLab: Vulkan multiview: supported=1 requested=1 selected=multiview
+10-12 21:23:16.832  2107  2244 I OpenXRVulkanLab: Vulkan extension VK_EXT_fragment_density_map: available
+10-12 21:23:16.832  2107  2244 I OpenXRVulkanLab: Vulkan extension VK_EXT_fragment_density_map2: available
+10-12 21:23:16.832  2107  2244 I OpenXRVulkanLab: Vulkan fragment density features: map=1 dynamic=0 nonSubsampled=1 deferred=1
+10-12 21:23:16.832  2107  2244 I OpenXRVulkanLab: Foveation: requested=off xrSupported=1 vkSupported=1 selected=off
+10-12 21:23:16.832  2107  2244 I OpenXRVulkanLab: GPU: Adreno (TM) 650; timestampValidBits=48; timestampPeriodNs=52.083332
+10-12 21:23:16.927  2107  2244 I OpenXRVulkanLab: OpenXR session created (graphics queue=0)
+10-12 21:23:16.927  2107  2244 I OpenXRVulkanLab: OpenXR display refresh rate: 72.00 Hz
+10-12 21:23:16.927  2107  2244 I OpenXRVulkanLab: LOCAL reference space created
+10-12 21:23:16.927  2107  2244 I OpenXRVulkanLab: Environment blend mode: 1
+10-12 21:23:16.927  2107  2244 I OpenXRVulkanLab: Swapchain format: 43
+10-12 21:23:16.954  2107  2244 I OpenXRVulkanLab: Cube geometry and graphics pipeline ready
+10-12 21:23:16.976  2107  2244 I OpenXRVulkanLab: Swapchain 0: 1024x1024, 3 images, 2 layers
+10-12 21:23:16.976  2107  2244 I OpenXRVulkanLab: Benchmark config: multiview cubes=100 resolution=1024x1024 per eye samples=1 warmup=300 measure=1800 colorFormat=43 depthFormat=126 foveation=off scene=grid-100
+10-12 21:23:16.976  2107  2244 I OpenXRVulkanLab: Android activity command: 10
+10-12 21:23:16.980  2107  2244 I OpenXRVulkanLab: Reference space change pending: type=1000426000, poseValid=1
+10-12 21:23:16.980  2107  2244 I OpenXRVulkanLab: Reference space change pending: type=3, poseValid=1
+10-12 21:23:16.980  2107  2244 I OpenXRVulkanLab: OpenXR session state: 1
+10-12 21:23:16.981  2107  2244 I OpenXRVulkanLab: Android activity command: 11
+10-12 21:23:17.014  2107  2244 I OpenXRVulkanLab: OpenXR session state: 2
+10-12 21:23:17.129  2107  2244 I OpenXRVulkanLab: OpenXR session started
+10-12 21:23:17.155  2107  2244 I OpenXRVulkanLab: OpenXR frame 1 completed; shouldRender=1
+10-12 21:23:17.161  2107  2244 I OpenXRVulkanLab: OpenXR session state: 3
+10-12 21:23:17.180  2107  2244 I OpenXRVulkanLab: OpenXR session state: 4
+10-12 21:23:17.180  2107  2244 I OpenXRVulkanLab: OpenXR session state: 5
+10-12 21:23:18.842  2107  2244 I OpenXRVulkanLab: OpenXR frame 120 completed; shouldRender=1
+10-12 21:23:20.514  2107  2244 I OpenXRVulkanLab: OpenXR frame 240 completed; shouldRender=1
+10-12 21:23:22.184  2107  2244 I OpenXRVulkanLab: OpenXR frame 360 completed; shouldRender=1
+10-12 21:23:23.856  2107  2244 I OpenXRVulkanLab: OpenXR frame 480 completed; shouldRender=1
+10-12 21:23:25.526  2107  2244 I OpenXRVulkanLab: OpenXR frame 600 completed; shouldRender=1
+10-12 21:23:27.197  2107  2244 I OpenXRVulkanLab: OpenXR frame 720 completed; shouldRender=1
+10-12 21:23:28.868  2107  2244 I OpenXRVulkanLab: OpenXR frame 840 completed; shouldRender=1
+10-12 21:23:30.538  2107  2244 I OpenXRVulkanLab: OpenXR frame 960 completed; shouldRender=1
+10-12 21:23:32.209  2107  2244 I OpenXRVulkanLab: OpenXR frame 1080 completed; shouldRender=1
+10-12 21:23:33.880  2107  2244 I OpenXRVulkanLab: OpenXR frame 1200 completed; shouldRender=1
