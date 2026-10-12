@@ -1,4 +1,7 @@
 // Generated from cube.vert, cube_multiview.vert, and cube.frag with glslc.
+// SHA-256 cube.vert: cf5113c82f9bc5f2945dfac2bef52092bce873304b7ab8b1041bb5ffe1dddb24
+// SHA-256 cube_multiview.vert: ef9cf48aaf3c25f28820c25b92875dd718f8adf004887c57a6360fea3edca98a
+// SHA-256 cube.frag: ad92e48316e5e9ce920695ad8ca55b5bbb70937508b3c0ad2b7f59acfa350385
 #pragma once
 #include <cstdint>
 constexpr uint32_t kCubeVertexShader[] = {

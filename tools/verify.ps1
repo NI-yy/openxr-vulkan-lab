@@ -64,6 +64,7 @@ try {
     Run-Checked $compiler.Source @('-std=c++17', '-Wall', '-Wextra', '-Werror', '-Iapp/src/main/cpp', 'tests/scene_test.cpp', 'app/src/main/cpp/scene.cpp', '-o', $testExecutable)
     Run-Checked $testExecutable @()
     Write-Host 'Host scene test passed.'
+    & (Join-Path $repository 'tests/measure_suite_test.ps1')
     if ($windowsHost) {
         Run-Checked $wrapper @(':app:assembleDebug', '--no-daemon', '--console=plain')
     } else {

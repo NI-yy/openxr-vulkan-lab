@@ -17,7 +17,7 @@ public:
 
     bool InitializeDevice(XrInstance instance, XrSystemId system,
                           bool xrFoveationSupported, bool multiviewRequested,
-                          Foveation requestedFoveation);
+                          Foveation requestedFoveation, bool validationRequested);
     XrGraphicsBindingVulkan2KHR GraphicsBinding() const;
     bool InitializeSwapchains(XrInstance instance, XrSystemId system,
                               XrSession session, const SceneData& scene);

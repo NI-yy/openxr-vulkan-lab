@@ -138,7 +138,7 @@ bool InitInstance(android_app* app, State& state) {
 bool InitSession(State& state) {
     if (!state.renderer.InitializeDevice(state.instance, state.system,
             state.xrFoveationSupported, state.multiviewRequested,
-            state.requestedFoveation)) return false;
+            state.requestedFoveation, state.validationRequested)) return false;
     XrGraphicsBindingVulkan2KHR binding = state.renderer.GraphicsBinding();
     XrSessionCreateInfo sessionInfo{XR_TYPE_SESSION_CREATE_INFO};
     sessionInfo.next = &binding;
@@ -401,6 +401,12 @@ void android_main(android_app* app) {
     else if (foveation[0] != '\0' && std::strcmp(foveation, "off") != 0)
         __android_log_print(ANDROID_LOG_WARN, kTag,
             "Unknown foveation level '%s'; selecting off", foveation);
+    char validation[PROP_VALUE_MAX]{};
+    __system_property_get("debug.openxrvulkanlab.validation", validation);
+    if (std::strcmp(validation, "on") == 0) state.validationRequested = true;
+    else if (validation[0] != '\0' && std::strcmp(validation, "off") != 0)
+        __android_log_print(ANDROID_LOG_WARN, kTag,
+            "Unknown validation setting '%s'; selecting off", validation);
     bool operationSucceeded = InitInstance(app, state);
     if (operationSucceeded) operationSucceeded = InitSession(state);
     if (operationSucceeded) operationSucceeded = state.renderer.InitializeSwapchains(

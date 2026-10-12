@@ -15,7 +15,7 @@ Manifest の Quest 2 宣言は [Meta の Android Manifest 指針](https://develo
 
 ## ビルドと実機確認
 
-Quest 2 を接続せずに環境確認、ホスト側のシーンテスト、Debug APK ビルドを一度に実行できます。Java 21、Android SDK（Platform 34、Build Tools 34.0.0、NDK 23.2.8568313、CMake 3.22.1）と `g++` または `clang++` を用意し、リポジトリのルートで実行してください。失敗した段階で非ゼロの終了コードになります。CI の `Verify` ワークフローも同じコマンドを実行します。
+Quest 2 を接続せずに環境確認、ホスト側のシーンテストと連続測定スクリプトの模擬ADBテスト、Debug APK ビルドを一度に実行できます。Java 21、Android SDK（Platform 34、Build Tools 34.0.0、NDK 23.2.8568313、CMake 3.22.1）と `g++` または `clang++` を用意し、リポジトリのルートで実行してください。失敗した段階で非ゼロの終了コードになります。CI の `Verify` ワークフローも同じコマンドを実行します。
 
 ```powershell
 $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
@@ -50,6 +50,38 @@ Issue #6 の Dual Pass 基準性能を測る条件、測定方法、実機結果
 
 Issue #8 の固定 Foveated Rendering は、Multiview 時に `debug.openxrvulkanlab.foveation` を `off`（既定）・`low`・`high` にして比較できます。対応拡張や Vulkan 機能が使えない場合は `off` に戻ります。実機測定の条件と結果は [FFR 比較](docs/foveation-benchmark.md) を参照してください。
 
+Issue #12 の連続測定は `./tools/measure_suite.ps1` で実行できます。APKを1回だけインストールし、Dual Pass と Multiview / FFR 3段階を順に測定して、条件別ログと実行全体の設定・端末情報を保存します。引数、出力形式、PCでの検証範囲は [連続測定手順](docs/measurement-suite.md) を参照してください。
+
+Issue #10〜#13 をまとめた Quest 2 の検証結果は [2026-10-12 の実機記録](docs/quest2-issues-10-13-2026-10-12.md) にまとめています。
+
+## Vulkan Validation Layer
+
+開発用 Debug APK では `debug.openxrvulkanlab.validation` を `on` / `off`（既定）にして、`VK_LAYER_KHRONOS_validation` を選択できます。アプリは Vulkan Instance 作成前に利用可能なレイヤーを列挙します。レイヤーが見つからない、またはレイヤー付き Instance 作成に失敗した場合は理由をログに出し、検証なしで起動を続けます。Release ビルドでは `on` を指定しても無効です。
+
+レイヤー本体は Debug APK にだけ含めます。[Android の公式手順](https://developer.android.com/ndk/guides/graphics/validation-layer)に従い、[Khronos の Android Validation Layers リリース](https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases)から Android `arm64-v8a` の `libVkLayer_khronos_validation.so` を取得し、次を実行します。スクリプトは ELF のアーキテクチャを確認し、Git 管理外の `app/src/debug/jniLibs/arm64-v8a/` に配置します。更新後は APK を再ビルド・再インストールしてください。
+
+```powershell
+./tools/stage_validation_layer.ps1 -LayerPath 'C:\path\to\arm64-v8a\libVkLayer_khronos_validation.so'
+$env:JAVA_HOME = 'C:\path\to\jdk-21'
+./gradlew.bat :app:assembleDebug --no-daemon --console=plain
+jar -tf app/build/outputs/apk/debug/app-debug.apk | Select-String 'lib/arm64-v8a/libVkLayer_khronos_validation.so'
+```
+
+Quest 2 では APK をインストール後、起動**前**にプロパティを設定します。設定を変えたらアプリを再起動してください。
+
+```powershell
+& $adb -d install -r 'app/build/outputs/apk/debug/app-debug.apk'
+& $adb -d shell setprop debug.openxrvulkanlab.validation on
+& $adb -d shell am force-stop dev.niyy.openxrvulkanlab
+& $adb -d logcat -c
+& $adb -d shell am start -n dev.niyy.openxrvulkanlab/android.app.NativeActivity
+& $adb -d logcat -d -s OpenXRVulkanLab:I VulkanValidation:V VALIDATION:V '*:S'
+```
+
+`Vulkan validation: requested=on selected=on layer=VK_LAYER_KHRONOS_validation` で有効化を確認します。検証メッセージは `VulkanValidation`（Debug Utils callback）または `VALIDATION` タグに出ます。エラーが出ない正常実行ではメッセージがない場合もあります。`selected=off` の場合は直前の `Vulkan validation unavailable: ...` を確認してください。APKへの同梱や端末側での読み込みに問題があると、列挙時に見つかりません。
+
+性能計測スクリプトは起動前にアプリ側の設定を `off` にし、端末のグローバル・アプリ別GPUデバッグレイヤー設定を確認します。外部レイヤーが対象アプリに有効なら測定を中止します。起動ログの `requested=off selected=off layer=none` も必須で、単発測定のログには `validation_requested=off` と `validation_off_confirmed=True`、連続測定の manifest にも `validation_requested=off` を保存します。開発用の外部設定が残っている場合は [Android 公式手順の解除コマンド](https://developer.android.com/ndk/guides/graphics/validation-layer#enable-layers-outside-the-application)で解除してから計測してください。
+
 ## シーン切り替え
 
 Issue #9 では OpenXR のフレーム進行を `main.cpp`、Vulkan デバイスと Swapchain を含む描画器を `renderer.cpp`、シーン定義を `scene.cpp` に分けました。描画器のリソースは `Renderer` が所有し、`main.cpp` は描画器の公開操作を呼びます。`debug.openxrvulkanlab.scene` で `clear`（背景のみ）、`single-cube`（正面に立方体1個）、`grid-100`（従来の基準シーン）を選べます。未設定時は `grid-100` です。
@@ -81,4 +113,11 @@ Issue #5 の立方体実装でも、2026-10-03 に Quest 2 で[左右の目の�
 
 初回の OpenXR SDK 取得を省略して手元の同じ commit を使う場合は、ビルド前に `OPENXR_SDK_SOURCE_DIR` をそのチェックアウトの絶対パスに設定できます。通常のビルドでは不要です。
 
-Shader は `app/src/main/cpp/cube.vert` と `cube.frag` にあります。変更後は Vulkan SDK の `glslc` を PATH に置き、`./tools/generate_cube_shaders.ps1` を実行して、ビルドに埋め込む `cube_shaders.h` を再生成してください。通常の APK ビルドに Vulkan SDK は不要です。
+Shader のソースは `app/src/main/cpp/cube.vert`、`cube_multiview.vert`、`cube.frag` です。生成には [LunarG Vulkan SDK 1.4.341.1](https://vulkan.lunarg.com/sdk/home/) に含まれる `glslc`（`shaderc v2026.1`）を使用します。Windows では同 SDK をインストールして `glslc` を PATH に置き、リポジトリのルートで次を実行して `cube_shaders.h` を再生成し、GLSL と一緒にコミットしてください。
+
+```powershell
+./tools/generate_cube_shaders.ps1
+./gradlew.bat :app:assembleDebug --no-daemon --console=plain
+```
+
+生成スクリプトは各 GLSL の SHA-256 をヘッダーに記録します。Gradle の `checkCubeShaders` タスクは APK ビルド前に 3 ファイルのハッシュを照合し、不一致なら再生成を促してビルドを失敗させます。CI の `Verify` ワークフローでは同じバージョンの Linux SDK を取得し、ヘッダーを再生成して差分があれば失敗します。`./tools/verify.ps1` でも APK ビルドを通じてハッシュ検査を実行します。通常の APK ビルドに `glslc` は不要です。
