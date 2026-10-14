@@ -3,8 +3,14 @@ $ErrorActionPreference = 'Stop'
 $shaderDir = Join-Path $PSScriptRoot '..\app\src\main\cpp'
 $compiler = (Get-Command glslc -ErrorAction Stop).Source
 $lines = [System.Collections.Generic.List[string]]::new()
-$lines.Add('// Generated from cube.vert, cube_multiview.vert, and cube.frag with glslc.')
-$entries = @(@('cube.vert', 'kCubeVertexShader'), @('cube_multiview.vert', 'kCubeMultiviewVertexShader'), @('cube.frag', 'kCubeFragmentShader'))
+$lines.Add('// Generated from cube and ocean GLSL sources with glslc.')
+$entries = @(
+    @('cube.vert', 'kCubeVertexShader'),
+    @('cube_multiview.vert', 'kCubeMultiviewVertexShader'),
+    @('cube.frag', 'kCubeFragmentShader'),
+    @('ocean.vert', 'kOceanVertexShader'),
+    @('ocean_multiview.vert', 'kOceanMultiviewVertexShader'),
+    @('ocean.frag', 'kOceanFragmentShader'))
 foreach ($entry in $entries) {
     $hash = (Get-FileHash -LiteralPath (Join-Path $shaderDir $entry[0]) -Algorithm SHA256).Hash.ToLowerInvariant()
     $lines.Add("// SHA-256 $($entry[0]): $hash")

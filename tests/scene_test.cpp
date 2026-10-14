@@ -11,13 +11,16 @@ int main() {
     assert(ParseScene("single-cube", id) && id == SceneId::SingleCube);
     assert(ParseScene("grid-100", id) && id == SceneId::Grid100);
     assert(!ParseScene("unknown", id) && id == SceneId::Grid100);
+    assert(ParseScene("sunset-ocean", id) && id == SceneId::SunsetOcean);
 
     const SceneData clear = MakeScene(SceneId::Clear);
     const SceneData single = MakeScene(SceneId::SingleCube);
     const SceneData grid = MakeScene(SceneId::Grid100);
+    const SceneData ocean = MakeScene(SceneId::SunsetOcean);
     assert(clear.cubeCount == 0);
     assert(single.cubeCount == 1 && single.cubes[0].z == -2.0f);
     assert(grid.cubeCount == 100);
+    assert(ocean.cubeCount == 0 && std::strcmp(SceneName(ocean.id), "sunset-ocean") == 0);
     assert(grid.cubes[0].x == -1.1f && grid.cubes[0].y == -1.1f && grid.cubes[0].z == -2.0f);
     assert(grid.cubes[99].x == 1.1f && grid.cubes[99].y == 1.1f);
     assert(std::fabs(grid.cubes[99].z + 3.95f) < 0.00001f);

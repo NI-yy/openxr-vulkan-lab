@@ -84,15 +84,20 @@ Quest 2 では APK をインストール後、起動**前**にプロパティを
 
 ## シーン切り替え
 
-Issue #9 では OpenXR のフレーム進行を `main.cpp`、Vulkan デバイスと Swapchain を含む描画器を `renderer.cpp`、シーン定義を `scene.cpp` に分けました。描画器のリソースは `Renderer` が所有し、`main.cpp` は描画器の公開操作を呼びます。`debug.openxrvulkanlab.scene` で `clear`（背景のみ）、`single-cube`（正面に立方体1個）、`grid-100`（従来の基準シーン）を選べます。未設定時は `grid-100` です。
+Issue #9 では OpenXR のフレーム進行を `main.cpp`、Vulkan デバイスと Swapchain を含む描画器を `renderer.cpp`、シーン定義を `scene.cpp` に分けました。描画器のリソースは `Renderer` が所有し、`main.cpp` は描画器の公開操作を呼びます。`debug.openxrvulkanlab.scene` で `clear`（背景のみ）、`single-cube`（正面に立方体1個）、`grid-100`（従来の基準シーン）、`sunset-ocean`（夕日の海）を選べます。未設定時は `grid-100` です。
 
 ```powershell
 & $adb -d shell setprop debug.openxrvulkanlab.scene single-cube
 & $adb -d shell setprop debug.openxrvulkanlab.scene clear
 & $adb -d shell setprop debug.openxrvulkanlab.scene grid-100
+& $adb -d shell setprop debug.openxrvulkanlab.scene sunset-ocean
 ```
 
 アプリの起動中でも次のフレームから反映されます。切り替えるとウォームアップと計測サンプルをリセットし、`Scene selected: ...; benchmark reset` をログに出します。`Benchmark complete` にもシーン名を記録します。既存の計測スクリプトは測定前に `grid-100` を指定するため、基準条件は従来どおりです。未知の名前は警告を出し、現在のシーンを維持します。
+
+`sunset-ocean` は各眼の視線を使って空と水面を全画面描画します。太陽は `LOCAL` 空間の -Z 方向、海面は原点から 1.5 m 下に固定しています。空はレイリー散乱とミー散乱の角度特性を参考にした軽量な近似で、厳密な大気積分ではありません。海は手続き的な波の法線と空・太陽の反射で表現します。実行中に切り替えられ、Dual Pass / Multiview のどちらでも描画します。
+
+水面の横縞と反射帯の改善、および実機での比較項目は [画質改善の記録](docs/sunset-ocean-quality.md) を参照してください。
 
 Quest 2 を接続しなくても、上記の `./tools/verify.ps1` で APK のビルドとシーン名、立方体数、従来の格子配置を検証できます。実機での両眼表示と GPU 時間の測定は、Quest を接続した日にまとめて行います。
 
@@ -113,11 +118,11 @@ Issue #5 の立方体実装でも、2026-10-03 に Quest 2 で[左右の目の�
 
 初回の OpenXR SDK 取得を省略して手元の同じ commit を使う場合は、ビルド前に `OPENXR_SDK_SOURCE_DIR` をそのチェックアウトの絶対パスに設定できます。通常のビルドでは不要です。
 
-Shader のソースは `app/src/main/cpp/cube.vert`、`cube_multiview.vert`、`cube.frag` です。生成には [LunarG Vulkan SDK 1.4.341.1](https://vulkan.lunarg.com/sdk/home/) に含まれる `glslc`（`shaderc v2026.1`）を使用します。Windows では同 SDK をインストールして `glslc` を PATH に置き、リポジトリのルートで次を実行して `cube_shaders.h` を再生成し、GLSL と一緒にコミットしてください。
+Shader のソースは `app/src/main/cpp/cube.vert`、`cube_multiview.vert`、`cube.frag` と `ocean.vert`、`ocean_multiview.vert`、`ocean.frag` です。生成には [LunarG Vulkan SDK 1.4.341.1](https://vulkan.lunarg.com/sdk/home/) に含まれる `glslc`（`shaderc v2026.1`）を使用します。Windows では同 SDK をインストールして `glslc` を PATH に置き、リポジトリのルートで次を実行して `cube_shaders.h` を再生成し、GLSL と一緒にコミットしてください。
 
 ```powershell
 ./tools/generate_cube_shaders.ps1
 ./gradlew.bat :app:assembleDebug --no-daemon --console=plain
 ```
 
-生成スクリプトは各 GLSL の SHA-256 をヘッダーに記録します。Gradle の `checkCubeShaders` タスクは APK ビルド前に 3 ファイルのハッシュを照合し、不一致なら再生成を促してビルドを失敗させます。CI の `Verify` ワークフローでは同じバージョンの Linux SDK を取得し、ヘッダーを再生成して差分があれば失敗します。`./tools/verify.ps1` でも APK ビルドを通じてハッシュ検査を実行します。通常の APK ビルドに `glslc` は不要です。
+生成スクリプトは各 GLSL の SHA-256 をヘッダーに記録します。Gradle の `checkCubeShaders` タスクは APK ビルド前に 6 ファイルのハッシュを照合し、不一致なら再生成を促してビルドを失敗させます。CI の `Verify` ワークフローでは同じバージョンの Linux SDK を取得し、ヘッダーを再生成して差分があれば失敗します。`./tools/verify.ps1` でも APK ビルドを通じてハッシュ検査を実行します。通常の APK ビルドに `glslc` は不要です。

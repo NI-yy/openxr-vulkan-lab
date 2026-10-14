@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-enum class SceneId { Clear, SingleCube, Grid100 };
+enum class SceneId { Clear, SingleCube, Grid100, SunsetOcean };
 
 struct CubePosition {
     float x = 0;

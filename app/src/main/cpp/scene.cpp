@@ -7,6 +7,7 @@ const char* SceneName(SceneId id) {
         case SceneId::Clear: return "clear";
         case SceneId::SingleCube: return "single-cube";
         case SceneId::Grid100: return "grid-100";
+        case SceneId::SunsetOcean: return "sunset-ocean";
     }
     return "grid-100";
 }
@@ -18,6 +19,8 @@ bool ParseScene(const char* name, SceneId& id) {
         id = SceneId::Clear;
     } else if (std::strcmp(name, "single-cube") == 0) {
         id = SceneId::SingleCube;
+    } else if (std::strcmp(name, "sunset-ocean") == 0) {
+        id = SceneId::SunsetOcean;
     } else {
         return false;
     }

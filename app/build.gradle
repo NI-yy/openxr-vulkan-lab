@@ -5,7 +5,8 @@ plugins {
 }
 
 def shaderDir = file('src/main/cpp')
-def shaderNames = ['cube.vert', 'cube_multiview.vert', 'cube.frag']
+def shaderNames = ['cube.vert', 'cube_multiview.vert', 'cube.frag',
+                   'ocean.vert', 'ocean_multiview.vert', 'ocean.frag']
 def shaderHeader = new File(shaderDir, 'cube_shaders.h')
 
 tasks.register('checkCubeShaders') {

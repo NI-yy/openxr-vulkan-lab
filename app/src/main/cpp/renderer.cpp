@@ -15,6 +15,16 @@ constexpr uint32_t kBenchmarkHeight = 1024;
 struct Mat4 { float v[16]{}; };
 struct Vertex { float position[3]; float color[3]; };
 struct PushConstants { Mat4 mvp[kEyeCount]; };
+struct OceanEye {
+    float orientation[4];
+    float origin[4];
+    float fov[4];
+};
+struct OceanPushConstants {
+    OceanEye eyes[kEyeCount];
+    float settings[4];
+};
+static_assert(sizeof(OceanPushConstants) == 112, "Ocean push constants exceed Vulkan's 128-byte minimum");
 
 struct EyeSwapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -41,6 +51,9 @@ struct RenderState {
     VkFormat depthFormat = VK_FORMAT_UNDEFINED;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
+    VkPipelineLayout oceanPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline oceanPipeline = VK_NULL_HANDLE;
+    bool colorIsSrgb = false;
     VkBuffer geometryBuffer = VK_NULL_HANDLE;
     VkDeviceMemory geometryMemory = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -618,6 +631,82 @@ bool InitPipeline(RenderState& state) {
     return ok;
 }
 
+bool InitOceanPipeline(RenderState& state) {
+    VkShaderModule modules[2]{};
+    VkShaderModuleCreateInfo shader{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    shader.codeSize = state.useMultiview ? sizeof(kOceanMultiviewVertexShader) : sizeof(kOceanVertexShader);
+    shader.pCode = state.useMultiview ? kOceanMultiviewVertexShader : kOceanVertexShader;
+    if (!VkOk("vkCreateShaderModule(ocean vertex)", vkCreateShaderModule(
+            state.vkDevice, &shader, nullptr, &modules[0]))) return false;
+    shader.codeSize = sizeof(kOceanFragmentShader);
+    shader.pCode = kOceanFragmentShader;
+    if (!VkOk("vkCreateShaderModule(ocean fragment)", vkCreateShaderModule(
+            state.vkDevice, &shader, nullptr, &modules[1]))) {
+        vkDestroyShaderModule(state.vkDevice, modules[0], nullptr);
+        return false;
+    }
+    VkPushConstantRange push{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(OceanPushConstants)};
+    VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout.pushConstantRangeCount = 1;
+    layout.pPushConstantRanges = &push;
+    bool ok = VkOk("vkCreatePipelineLayout(ocean)", vkCreatePipelineLayout(
+        state.vkDevice, &layout, nullptr, &state.oceanPipelineLayout));
+    if (ok) {
+        VkPipelineShaderStageCreateInfo stages[2]{};
+        for (uint32_t i = 0; i < 2; ++i) {
+            stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            stages[i].stage = i == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+            stages[i].module = modules[i];
+            stages[i].pName = "main";
+        }
+        VkPipelineVertexInputStateCreateInfo vertex{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+        VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+        assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        viewport.viewportCount = 1;
+        viewport.scissorCount = 1;
+        VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        raster.polygonMode = VK_POLYGON_MODE_FILL;
+        raster.cullMode = VK_CULL_MODE_NONE;
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.lineWidth = 1.0f;
+        VkPipelineMultisampleStateCreateInfo samples{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        raster.depthClampEnable = VK_FALSE;
+        samples.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        depth.depthTestEnable = VK_FALSE;
+        depth.depthWriteEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState color{};
+        color.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        blend.attachmentCount = 1;
+        blend.pAttachments = &color;
+        const VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+        dynamic.dynamicStateCount = 2;
+        dynamic.pDynamicStates = dynamicStates;
+        VkGraphicsPipelineCreateInfo pipeline{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+        pipeline.stageCount = 2;
+        pipeline.pStages = stages;
+        pipeline.pVertexInputState = &vertex;
+        pipeline.pInputAssemblyState = &assembly;
+        pipeline.pViewportState = &viewport;
+        pipeline.pRasterizationState = &raster;
+        pipeline.pMultisampleState = &samples;
+        pipeline.pDepthStencilState = &depth;
+        pipeline.pColorBlendState = &blend;
+        pipeline.pDynamicState = &dynamic;
+        pipeline.layout = state.oceanPipelineLayout;
+        pipeline.renderPass = state.renderPass;
+        ok = VkOk("vkCreateGraphicsPipelines(ocean)", vkCreateGraphicsPipelines(
+            state.vkDevice, VK_NULL_HANDLE, 1, &pipeline, nullptr, &state.oceanPipeline));
+    }
+    vkDestroyShaderModule(state.vkDevice, modules[1], nullptr);
+    vkDestroyShaderModule(state.vkDevice, modules[0], nullptr);
+    return ok;
+}
+
 bool InitDepth(RenderState& state, EyeSwapchain& eye) {
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType = VK_IMAGE_TYPE_2D;
@@ -687,6 +776,8 @@ bool InitSwapchains(RenderState& state, XrInstance instance, XrSystemId system,
         __android_log_print(ANDROID_LOG_ERROR, kTag, "No supported RGBA color attachment format");
         return false;
     }
+    state.colorIsSrgb = colorFormat == VK_FORMAT_R8G8B8A8_SRGB ||
+                        colorFormat == VK_FORMAT_B8G8R8A8_SRGB;
     __android_log_print(ANDROID_LOG_INFO, kTag, "Swapchain format: %d", colorFormat);
 
     for (VkFormat candidate : {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM}) {
@@ -760,8 +851,8 @@ bool InitSwapchains(RenderState& state, XrInstance instance, XrSystemId system,
     }
     if (!VkOk("vkCreateRenderPass", vkCreateRenderPass(
             state.vkDevice, &renderPassInfo, nullptr, &state.renderPass))) return false;
-    if (!InitGeometry(state) || !InitPipeline(state)) return false;
-    __android_log_print(ANDROID_LOG_INFO, kTag, "Cube geometry and graphics pipeline ready");
+    if (!InitGeometry(state) || !InitPipeline(state) || !InitOceanPipeline(state)) return false;
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Cube and sunset-ocean graphics pipelines ready");
 
     for (uint32_t eyeIndex = 0; eyeIndex < kEyeCount; ++eyeIndex) {
         if (state.useMultiview && eyeIndex != 0) break;
@@ -948,27 +1039,54 @@ bool RenderScene(RenderState& state, EyeSwapchain& eye, uint32_t imageIndex,
     const VkRect2D scissor{{0, 0}, {eye.width, eye.height}};
     vkCmdSetViewport(state.commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(state.commandBuffer, 0, 1, &scissor);
-    vkCmdBindPipeline(state.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.pipeline);
-    const VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(state.commandBuffer, 0, 1, &state.geometryBuffer, &offset);
-    vkCmdBindIndexBuffer(state.commandBuffer, state.geometryBuffer,
-                         sizeof(kCubeVertices), VK_INDEX_TYPE_UINT16);
-    std::array<Mat4, kEyeCount> viewProjection{};
-    for (uint32_t viewIndex = 0; viewIndex < (state.useMultiview ? kEyeCount : 1); ++viewIndex) {
-        const XrView& xrView = views[state.useMultiview ? viewIndex : eyeIndex];
-        viewProjection[viewIndex] = Multiply(Projection(xrView.fov), EyeView(xrView.pose));
-    }
-    for (uint32_t cube = 0; cube < scene.cubeCount; ++cube) {
-        PushConstants transform{};
-        const Mat4 model = CubeModel(scene.cubes[cube]);
+    if (scene.id == SceneId::SunsetOcean) {
+        OceanPushConstants ocean{};
+        ocean.settings[0] = state.colorIsSrgb ? 1.0f : 0.0f;
         for (uint32_t viewIndex = 0; viewIndex < (state.useMultiview ? kEyeCount : 1); ++viewIndex) {
-            transform.mvp[viewIndex] = Multiply(viewProjection[viewIndex], model);
+            const XrView& xrView = views[state.useMultiview ? viewIndex : eyeIndex];
+            const auto& q = xrView.pose.orientation;
+            const auto& p = xrView.pose.position;
+            const auto& fov = xrView.fov;
+            auto& eyeParams = ocean.eyes[viewIndex];
+            eyeParams.orientation[0] = q.x;
+            eyeParams.orientation[1] = q.y;
+            eyeParams.orientation[2] = q.z;
+            eyeParams.orientation[3] = q.w;
+            eyeParams.origin[0] = p.x;
+            eyeParams.origin[1] = p.y;
+            eyeParams.origin[2] = p.z;
+            eyeParams.fov[0] = std::tan(fov.angleLeft);
+            eyeParams.fov[1] = std::tan(fov.angleRight);
+            eyeParams.fov[2] = std::tan(fov.angleDown);
+            eyeParams.fov[3] = std::tan(fov.angleUp);
         }
-        vkCmdPushConstants(state.commandBuffer, state.pipelineLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT, 0,
-                           state.useMultiview ? sizeof(transform) : sizeof(Mat4), &transform);
-        vkCmdDrawIndexed(state.commandBuffer, static_cast<uint32_t>(kCubeIndices.size()),
-                         1, 0, 0, 0);
+        vkCmdBindPipeline(state.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.oceanPipeline);
+        vkCmdPushConstants(state.commandBuffer, state.oceanPipelineLayout,
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(ocean), &ocean);
+        vkCmdDraw(state.commandBuffer, 3, 1, 0, 0);
+    } else {
+        vkCmdBindPipeline(state.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.pipeline);
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(state.commandBuffer, 0, 1, &state.geometryBuffer, &offset);
+        vkCmdBindIndexBuffer(state.commandBuffer, state.geometryBuffer,
+                             sizeof(kCubeVertices), VK_INDEX_TYPE_UINT16);
+        std::array<Mat4, kEyeCount> viewProjection{};
+        for (uint32_t viewIndex = 0; viewIndex < (state.useMultiview ? kEyeCount : 1); ++viewIndex) {
+            const XrView& xrView = views[state.useMultiview ? viewIndex : eyeIndex];
+            viewProjection[viewIndex] = Multiply(Projection(xrView.fov), EyeView(xrView.pose));
+        }
+        for (uint32_t cube = 0; cube < scene.cubeCount; ++cube) {
+            PushConstants transform{};
+            const Mat4 model = CubeModel(scene.cubes[cube]);
+            for (uint32_t viewIndex = 0; viewIndex < (state.useMultiview ? kEyeCount : 1); ++viewIndex) {
+                transform.mvp[viewIndex] = Multiply(viewProjection[viewIndex], model);
+            }
+            vkCmdPushConstants(state.commandBuffer, state.pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0,
+                               state.useMultiview ? sizeof(transform) : sizeof(Mat4), &transform);
+            vkCmdDrawIndexed(state.commandBuffer, static_cast<uint32_t>(kCubeIndices.size()),
+                             1, 0, 0, 0);
+        }
     }
     vkCmdEndRenderPass(state.commandBuffer);
     vkCmdWriteTimestamp(state.commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -1002,6 +1120,8 @@ void DestroyRenderer(RenderState& state) {
     if (state.renderFence != VK_NULL_HANDLE) vkDestroyFence(state.vkDevice, state.renderFence, nullptr);
     if (state.commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(state.vkDevice, state.commandPool, nullptr);
     if (state.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(state.vkDevice, state.pipeline, nullptr);
+    if (state.oceanPipeline != VK_NULL_HANDLE) vkDestroyPipeline(state.vkDevice, state.oceanPipeline, nullptr);
+    if (state.oceanPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(state.vkDevice, state.oceanPipelineLayout, nullptr);
     if (state.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(state.vkDevice, state.pipelineLayout, nullptr);
     if (state.geometryBuffer != VK_NULL_HANDLE) vkDestroyBuffer(state.vkDevice, state.geometryBuffer, nullptr);
     if (state.geometryMemory != VK_NULL_HANDLE) vkFreeMemory(state.vkDevice, state.geometryMemory, nullptr);
