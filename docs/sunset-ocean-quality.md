@@ -1,6 +1,6 @@
 # 夕日の海: 画質改善の記録
 
-Issue #17 の改善前後を比較するための記録。Quest 2 を最後に一度だけ接続して確認する。
+Issue #17 の改善前後を比較するための記録。PC で調整した後、Quest 2 で画質と性能を確認した。
 
 ## 改善前の基準
 
@@ -28,10 +28,26 @@ python tools/preview_sunset_ocean.py
 
 これは GLSL の計算を CPU で概算したプレビューであり、Vulkan シェーダーそのものや両眼の画質・性能を検証するものではない。変更前の Quest 2 キャプチャにはカメラ姿勢が記録されていないため、厳密な同一視点比較には使えない。
 
-## 最後に行う実機確認
+## Quest 2 実機確認（2026-10-20）
 
-- [ ] 同じシーンの両眼キャプチャを保存し、横縞、ちらつき、反射帯を改善前と比較する。
-- [ ] 頭部を動かし、水面と水平線の空間固定、左右の視差を確認する。
-- [ ] Multiview、Dual Pass、FFR high で表示を確認する。
-- [ ] Multiview / FFR off で GPU 時間とフレーム間隔を再測定し、72 Hz を維持できるか確認する。
-- [ ] Vulkan Validation Layer が使える場合は、描画由来のエラーを確認する。
+Debug APK（SHA-256 `E116A82558066DE14288E7C83681ECB91D564F208A2CAC0D80AD020918525AD1`）、Quest 2、1024 × 1024 / 眼、72 Hz。各測定は 300 フレームのウォームアップ後、1800 フレームを記録した。3 条件とも要求したシーン・描画方式・FFR が選択され、Validation off、サーマル状態は前後とも 0 だった。
+
+| 条件 | GPU 時間中央値 | フレーム間隔中央値 | 記録 |
+| --- | ---: | ---: | --- |
+| Multiview / FFR off | 2.1542 ms | 13.9001 ms | [ログ](measurements/20261020-sunset-ocean/multiview-off-success.txt)、[両眼画像](sunset-ocean-after.png) |
+| Dual Pass / FFR off | 左右合計 2.1689 ms | 13.8896 ms | [ログ](measurements/20261020-sunset-ocean/dual-pass-off.txt)、[両眼画像](sunset-ocean-dual.png) |
+| Multiview / FFR high | 1.0960 ms | 13.8970 ms | [ログ](measurements/20261020-sunset-ocean/multiview-high.txt)、[両眼画像](sunset-ocean-high.png) |
+
+改善前の Multiview / FFR off の GPU 中央値 1.5117 ms より、今回の 2.1542 ms は約 42% 長い。測定日と端末の OS 状態が異なるため、増加分のすべてをシェーダー変更に帰属できない。いずれも 72 Hz のフレーム予算 13.89 ms の範囲内で完走した。GPU 時間はアプリの timestamp query 値であり、実際の表示遅延ではない。
+
+[改善前](sunset-ocean-before.png)と[改善後](sunset-ocean-after.png)を比べると、遠景の細かな乱れと離れた明るい斑点は減り、太陽の反射が帯状につながった。水面の規則的な横帯はまだ残る。比較画像の視点が厳密には一致せず、静止画ではちらつきや頭部移動時の安定性を判定できない。
+
+APK 同梱の `VK_LAYER_KHRONOS_validation` を有効にした起動では、レイヤーと Debug Utils messenger の選択、描画フレームの進行を確認した。取得した約 9 秒間の[ログ](measurements/20261020-sunset-ocean/validation-on.txt)に Validation Error / Warning はなかった。
+
+初回の自動計測は Quest 2 の「コントローラーに切り替え」ダイアログで起動が止まり、タイムアウトした。[初回ログ](measurements/20261020-sunset-ocean/startup-dialog-timeout.txt)は結果として採用していない。ダイアログを進めた後の上記 3 回は正常終了した。ユーザーが装着して頭部を左右・上下に動かし、海と水平線の空間固定、左右の自然な奥行き、ちらつきを確認した結果は「正常に見える」だった。これは主観的な確認で、動画による定量判定ではない。
+
+- [x] 両眼キャプチャと改善前の静止画比較。
+- [x] Multiview、Dual Pass、FFR high の設定選択と描画を確認。
+- [x] GPU 時間、フレーム間隔、72 Hz、サーマル状態を記録。
+- [x] Validation Layer を有効にして描画ログを確認。
+- [x] 装着して頭部を動かし、空間固定、左右の視差、ちらつきを確認。

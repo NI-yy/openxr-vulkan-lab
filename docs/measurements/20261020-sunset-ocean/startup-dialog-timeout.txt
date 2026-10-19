@@ -1,0 +1,275 @@
+=== Host ===
+started=2026-10-20T08:13:28.7635949+09:00
+git_commit=24eeaef2f98148ea9be9a8f05b1324bdbd7cdb1d
+git_status= M tools/measure_dual_pass.ps1
+
+apk_sha256=E116A82558066DE14288E7C83681ECB91D564F208A2CAC0D80AD020918525AD1
+
+=== Device ===
+adb_device=1WMHHB603S1507
+model=Quest 2
+android=14
+build=oculus/hollywood/hollywood:14/UP1A.231005.007.A1/52242990035800150:user/abl_signing_keys:release,amss_signing_keys:release,release-keys
+security_patch=2026-06-04
+
+=== Foveation overrides ===
+system_level=
+system_dynamic=
+
+=== Thermal before ===
+IsStatusOverride: false
+ThermalEventListeners:
+	callbacks: 4
+	killed: false
+	broadcasts count: -1
+ThermalStatusListeners:
+	callbacks: 3
+	killed: false
+	broadcasts count: -1
+Thermal Status: 0
+Cached temperatures:
+	Temperature{mValue=26.527, mType=3, mName=pcb1-usr, mStatus=0}
+	Temperature{mValue=26.408, mType=3, mName=pcb2-usr, mStatus=0}
+	Temperature{mValue=26.533, mType=3, mName=pcb3-usr, mStatus=0}
+	Temperature{mValue=26.300001, mType=2, mName=batt-usr, mStatus=0}
+	Temperature{mValue=37.616, mType=0, mName=cpu-0-0-usr, mStatus=0}
+	Temperature{mValue=35.822002, mType=0, mName=cpu-0-1-usr, mStatus=0}
+	Temperature{mValue=33.836002, mType=0, mName=cpu-0-2-usr, mStatus=0}
+	Temperature{mValue=36.766003, mType=0, mName=cpu-0-3-usr, mStatus=0}
+	Temperature{mValue=29.435001, mType=3, mName=soc-iio-usr, mStatus=0}
+	Temperature{mValue=32.5, mType=0, mName=vrapi-pmem, mStatus=0}
+	Temperature{mValue=26.826002, mType=2, mName=batt-virt, mStatus=0}
+	Temperature{mValue=41.072002, mType=0, mName=cpu-1-0-usr, mStatus=0}
+	Temperature{mValue=42.864002, mType=0, mName=cpu-1-1-usr, mStatus=0}
+	Temperature{mValue=42.496002, mType=0, mName=cpu-1-2-usr, mStatus=0}
+	Temperature{mValue=45.812, mType=0, mName=cpu-1-3-usr, mStatus=0}
+	Temperature{mValue=41.544003, mType=0, mName=cpu-1-4-usr, mStatus=0}
+	Temperature{mValue=42.316, mType=0, mName=cpu-1-5-usr, mStatus=0}
+	Temperature{mValue=42.878002, mType=0, mName=cpu-1-6-usr, mStatus=0}
+	Temperature{mValue=44.960003, mType=0, mName=cpu-1-7-usr, mStatus=0}
+	Temperature{mValue=25.819002, mType=3, mName=cam0-usr, mStatus=0}
+	Temperature{mValue=25.792002, mType=3, mName=cam1-usr, mStatus=0}
+	Temperature{mValue=25.718, mType=3, mName=cam2-usr, mStatus=0}
+	Temperature{mValue=25.727001, mType=3, mName=cam3-usr, mStatus=0}
+	Temperature{mValue=40.710003, mType=0, mName=cpuss-0-usr, mStatus=0}
+	Temperature{mValue=42.098003, mType=0, mName=cpuss-1-usr, mStatus=0}
+	Temperature{mValue=45.812, mType=0, mName=apc-1-max-step, mStatus=0}
+	Temperature{mValue=21.392, mType=3, mName=vrapi-front-panel, mStatus=0}
+	Temperature{mValue=27.301, mType=3, mName=rfpa-usr, mStatus=0}
+	Temperature{mValue=28.726002, mType=1, mName=gpuss-0-usr, mStatus=0}
+	Temperature{mValue=29.608002, mType=1, mName=gpuss-1-usr, mStatus=0}
+	Temperature{mValue=21.397001, mType=3, mName=display-virt, mStatus=0}
+	Temperature{mValue=26.063002, mType=3, mName=imu-usr, mStatus=0}
+HAL Ready: true
+HAL connection:
+	ThermalHAL AIDL 1  connected: yes
+Current temperatures from HAL:
+	Temperature{mValue=53.876003, mType=0, mName=apc-1-max-step, mStatus=0}
+	Temperature{mValue=30.0, mType=2, mName=batt-usr, mStatus=0}
+	Temperature{mValue=26.488, mType=2, mName=batt-virt, mStatus=0}
+	Temperature{mValue=35.922, mType=3, mName=cam0-usr, mStatus=0}
+	Temperature{mValue=36.446003, mType=3, mName=cam1-usr, mStatus=0}
+	Temperature{mValue=35.571003, mType=3, mName=cam2-usr, mStatus=0}
+	Temperature{mValue=34.443, mType=3, mName=cam3-usr, mStatus=0}
+	Temperature{mValue=52.738003, mType=0, mName=cpu-0-0-usr, mStatus=0}
+	Temperature{mValue=52.980003, mType=0, mName=cpu-0-1-usr, mStatus=0}
+	Temperature{mValue=52.516003, mType=0, mName=cpu-0-2-usr, mStatus=0}
+	Temperature{mValue=51.526, mType=0, mName=cpu-0-3-usr, mStatus=0}
+	Temperature{mValue=51.390003, mType=0, mName=cpu-1-0-usr, mStatus=0}
+	Temperature{mValue=52.83, mType=0, mName=cpu-1-1-usr, mStatus=0}
+	Temperature{mValue=52.698, mType=0, mName=cpu-1-2-usr, mStatus=0}
+	Temperature{mValue=53.152004, mType=0, mName=cpu-1-3-usr, mStatus=0}
+	Temperature{mValue=51.596, mType=0, mName=cpu-1-4-usr, mStatus=0}
+	Temperature{mValue=53.152004, mType=0, mName=cpu-1-5-usr, mStatus=0}
+	Temperature{mValue=52.320004, mType=0, mName=cpu-1-6-usr, mStatus=0}
+	Temperature{mValue=53.876003, mType=0, mName=cpu-1-7-usr, mStatus=0}
+	Temperature{mValue=54.268, mType=0, mName=cpuss-0-usr, mStatus=0}
+	Temperature{mValue=53.428, mType=0, mName=cpuss-1-usr, mStatus=0}
+	Temperature{mValue=34.122, mType=3, mName=display-virt, mStatus=0}
+	Temperature{mValue=53.516003, mType=1, mName=gpuss-0-usr, mStatus=0}
+	Temperature{mValue=51.708004, mType=1, mName=gpuss-1-usr, mStatus=0}
+	Temperature{mValue=41.819, mType=3, mName=imu-usr, mStatus=0}
+	Temperature{mValue=43.075, mType=3, mName=pcb1-usr, mStatus=0}
+	Temperature{mValue=41.649002, mType=3, mName=pcb2-usr, mStatus=0}
+	Temperature{mValue=41.336002, mType=3, mName=pcb3-usr, mStatus=0}
+	Temperature{mValue=43.867, mType=3, mName=rfpa-usr, mStatus=0}
+	Temperature{mValue=47.258003, mType=3, mName=soc-iio-usr, mStatus=0}
+	Temperature{mValue=33.095, mType=3, mName=vrapi-front-panel, mStatus=0}
+	Temperature{mValue=51.9, mType=0, mName=vrapi-pmem, mStatus=0}
+Current cooling devices from HAL:
+	CoolingDevice{mValue=4, mType=0, mName=pwm-tach-fan0}
+Temperature static thresholds from HAL:
+	TemperatureThreshold{mType=0, mName=apc-1-max-step, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=2, mName=batt-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=2, mName=batt-virt, mHotThrottlingThresholds=[NaN, 53.0, NaN, 58.0, NaN, NaN, 59.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam2-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam3-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-2-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-3-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-0-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-1-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-2-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-3-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-4-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-5-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-6-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-7-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpuss-0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpuss-1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=display-virt, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=1, mName=gpuss-0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=1, mName=gpuss-1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=imu-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=pcb1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=pcb2-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=pcb3-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=rfpa-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=soc-iio-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=vrapi-front-panel, mHotThrottlingThresholds=[NaN, 47.0, 51.0, 52.0, NaN, NaN, 60.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=vrapi-pmem, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+
+=== Vulkan validation environment ===
+debug_vulkan_layers=
+enable_gpu_debug_layers=null
+gpu_debug_app=null
+gpu_debug_layers=null
+
+=== Vulkan validation environment ===
+debug_vulkan_layers=
+enable_gpu_debug_layers=null
+gpu_debug_app=null
+gpu_debug_layers=null
+
+=== Measurement ===
+finished=2026-10-20T08:16:04.4067252+09:00
+requested_mode=multiview
+selected_mode_matched=False
+requested_foveation=off
+selected_foveation_matched=False
+requested_scene=sunset-ocean
+selected_scene_matched=False
+validation_requested=off
+validation_off_confirmed=False
+complete=False
+
+=== Application log ===
+
+=== Thermal after ===
+IsStatusOverride: false
+ThermalEventListeners:
+	callbacks: 4
+	killed: false
+	broadcasts count: -1
+ThermalStatusListeners:
+	callbacks: 3
+	killed: false
+	broadcasts count: -1
+Thermal Status: 0
+Cached temperatures:
+	Temperature{mValue=26.527, mType=3, mName=pcb1-usr, mStatus=0}
+	Temperature{mValue=26.408, mType=3, mName=pcb2-usr, mStatus=0}
+	Temperature{mValue=26.533, mType=3, mName=pcb3-usr, mStatus=0}
+	Temperature{mValue=26.300001, mType=2, mName=batt-usr, mStatus=0}
+	Temperature{mValue=37.616, mType=0, mName=cpu-0-0-usr, mStatus=0}
+	Temperature{mValue=35.822002, mType=0, mName=cpu-0-1-usr, mStatus=0}
+	Temperature{mValue=33.836002, mType=0, mName=cpu-0-2-usr, mStatus=0}
+	Temperature{mValue=36.766003, mType=0, mName=cpu-0-3-usr, mStatus=0}
+	Temperature{mValue=29.435001, mType=3, mName=soc-iio-usr, mStatus=0}
+	Temperature{mValue=32.5, mType=0, mName=vrapi-pmem, mStatus=0}
+	Temperature{mValue=26.826002, mType=2, mName=batt-virt, mStatus=0}
+	Temperature{mValue=41.072002, mType=0, mName=cpu-1-0-usr, mStatus=0}
+	Temperature{mValue=42.864002, mType=0, mName=cpu-1-1-usr, mStatus=0}
+	Temperature{mValue=42.496002, mType=0, mName=cpu-1-2-usr, mStatus=0}
+	Temperature{mValue=45.812, mType=0, mName=cpu-1-3-usr, mStatus=0}
+	Temperature{mValue=41.544003, mType=0, mName=cpu-1-4-usr, mStatus=0}
+	Temperature{mValue=42.316, mType=0, mName=cpu-1-5-usr, mStatus=0}
+	Temperature{mValue=42.878002, mType=0, mName=cpu-1-6-usr, mStatus=0}
+	Temperature{mValue=44.960003, mType=0, mName=cpu-1-7-usr, mStatus=0}
+	Temperature{mValue=25.819002, mType=3, mName=cam0-usr, mStatus=0}
+	Temperature{mValue=25.792002, mType=3, mName=cam1-usr, mStatus=0}
+	Temperature{mValue=25.718, mType=3, mName=cam2-usr, mStatus=0}
+	Temperature{mValue=25.727001, mType=3, mName=cam3-usr, mStatus=0}
+	Temperature{mValue=40.710003, mType=0, mName=cpuss-0-usr, mStatus=0}
+	Temperature{mValue=42.098003, mType=0, mName=cpuss-1-usr, mStatus=0}
+	Temperature{mValue=45.812, mType=0, mName=apc-1-max-step, mStatus=0}
+	Temperature{mValue=21.392, mType=3, mName=vrapi-front-panel, mStatus=0}
+	Temperature{mValue=27.301, mType=3, mName=rfpa-usr, mStatus=0}
+	Temperature{mValue=28.726002, mType=1, mName=gpuss-0-usr, mStatus=0}
+	Temperature{mValue=29.608002, mType=1, mName=gpuss-1-usr, mStatus=0}
+	Temperature{mValue=21.397001, mType=3, mName=display-virt, mStatus=0}
+	Temperature{mValue=26.063002, mType=3, mName=imu-usr, mStatus=0}
+HAL Ready: true
+HAL connection:
+	ThermalHAL AIDL 1  connected: yes
+Current temperatures from HAL:
+	Temperature{mValue=56.174004, mType=0, mName=apc-1-max-step, mStatus=0}
+	Temperature{mValue=31.4, mType=2, mName=batt-usr, mStatus=0}
+	Temperature{mValue=27.749, mType=2, mName=batt-virt, mStatus=0}
+	Temperature{mValue=39.822002, mType=3, mName=cam0-usr, mStatus=0}
+	Temperature{mValue=40.556004, mType=3, mName=cam1-usr, mStatus=0}
+	Temperature{mValue=39.122, mType=3, mName=cam2-usr, mStatus=0}
+	Temperature{mValue=37.862003, mType=3, mName=cam3-usr, mStatus=0}
+	Temperature{mValue=54.754, mType=0, mName=cpu-0-0-usr, mStatus=0}
+	Temperature{mValue=55.028004, mType=0, mName=cpu-0-1-usr, mStatus=0}
+	Temperature{mValue=54.468002, mType=0, mName=cpu-0-2-usr, mStatus=0}
+	Temperature{mValue=53.780003, mType=0, mName=cpu-0-3-usr, mStatus=0}
+	Temperature{mValue=53.652004, mType=0, mName=cpu-1-0-usr, mStatus=0}
+	Temperature{mValue=54.914, mType=0, mName=cpu-1-1-usr, mStatus=0}
+	Temperature{mValue=54.964005, mType=0, mName=cpu-1-2-usr, mStatus=0}
+	Temperature{mValue=55.372, mType=0, mName=cpu-1-3-usr, mStatus=0}
+	Temperature{mValue=53.820004, mType=0, mName=cpu-1-4-usr, mStatus=0}
+	Temperature{mValue=55.24, mType=0, mName=cpu-1-5-usr, mStatus=0}
+	Temperature{mValue=54.564003, mType=0, mName=cpu-1-6-usr, mStatus=0}
+	Temperature{mValue=56.182003, mType=0, mName=cpu-1-7-usr, mStatus=0}
+	Temperature{mValue=56.348003, mType=0, mName=cpuss-0-usr, mStatus=0}
+	Temperature{mValue=55.756004, mType=0, mName=cpuss-1-usr, mStatus=0}
+	Temperature{mValue=38.481003, mType=3, mName=display-virt, mStatus=0}
+	Temperature{mValue=54.660004, mType=1, mName=gpuss-0-usr, mStatus=0}
+	Temperature{mValue=53.58, mType=1, mName=gpuss-1-usr, mStatus=0}
+	Temperature{mValue=45.264004, mType=3, mName=imu-usr, mStatus=0}
+	Temperature{mValue=46.309002, mType=3, mName=pcb1-usr, mStatus=0}
+	Temperature{mValue=45.024002, mType=3, mName=pcb2-usr, mStatus=0}
+	Temperature{mValue=44.607002, mType=3, mName=pcb3-usr, mStatus=0}
+	Temperature{mValue=46.920002, mType=3, mName=rfpa-usr, mStatus=0}
+	Temperature{mValue=49.782, mType=3, mName=soc-iio-usr, mStatus=0}
+	Temperature{mValue=35.58, mType=3, mName=vrapi-front-panel, mStatus=0}
+	Temperature{mValue=53.9, mType=0, mName=vrapi-pmem, mStatus=0}
+Current cooling devices from HAL:
+	CoolingDevice{mValue=4, mType=0, mName=pwm-tach-fan0}
+Temperature static thresholds from HAL:
+	TemperatureThreshold{mType=0, mName=apc-1-max-step, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=2, mName=batt-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=2, mName=batt-virt, mHotThrottlingThresholds=[NaN, 53.0, NaN, 58.0, NaN, NaN, 59.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam2-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=cam3-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-2-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-0-3-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-0-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-1-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-2-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-3-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-4-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-5-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-6-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpu-1-7-usr, mHotThrottlingThresholds=[NaN, 90.0, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpuss-0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=cpuss-1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=display-virt, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=1, mName=gpuss-0-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=1, mName=gpuss-1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, 115.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=imu-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=pcb1-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=pcb2-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=pcb3-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=rfpa-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=soc-iio-usr, mHotThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=3, mName=vrapi-front-panel, mHotThrottlingThresholds=[NaN, 47.0, 51.0, 52.0, NaN, NaN, 60.0], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}
+	TemperatureThreshold{mType=0, mName=vrapi-pmem, mHotThrottlingThresholds=[NaN, NaN, NaN, 95.0, NaN, NaN, NaN], mColdThrottlingThresholds=[NaN, NaN, NaN, NaN, NaN, NaN, NaN]}

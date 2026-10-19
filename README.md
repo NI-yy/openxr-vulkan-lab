@@ -93,7 +93,7 @@ Issue #9 では OpenXR のフレーム進行を `main.cpp`、Vulkan デバイス
 & $adb -d shell setprop debug.openxrvulkanlab.scene sunset-ocean
 ```
 
-アプリの起動中でも次のフレームから反映されます。切り替えるとウォームアップと計測サンプルをリセットし、`Scene selected: ...; benchmark reset` をログに出します。`Benchmark complete` にもシーン名を記録します。既存の計測スクリプトは測定前に `grid-100` を指定するため、基準条件は従来どおりです。未知の名前は警告を出し、現在のシーンを維持します。
+アプリの起動中でも次のフレームから反映されます。切り替えるとウォームアップと計測サンプルをリセットし、`Scene selected: ...; benchmark reset` をログに出します。`Benchmark complete` にもシーン名を記録します。既存の計測スクリプトは既定で `grid-100` を指定するため、基準条件は従来どおりです。夕日の海の計測は `./tools/measure_dual_pass.ps1 -Mode multiview -Foveation off -Scene sunset-ocean` を使います。未知の名前は警告を出し、現在のシーンを維持します。
 
 `sunset-ocean` は各眼の視線を使って空と水面を全画面描画します。太陽は `LOCAL` 空間の -Z 方向、海面は原点から 1.5 m 下に固定しています。空はレイリー散乱とミー散乱の角度特性を参考にした軽量な近似で、厳密な大気積分ではありません。海は手続き的な波の法線と空・太陽の反射で表現します。実行中に切り替えられ、Dual Pass / Multiview のどちらでも描画します。
 

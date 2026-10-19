@@ -3,6 +3,8 @@ param(
     [string]$Mode = 'dual-pass',
     [ValidateSet('off', 'low', 'high')]
     [string]$Foveation = 'off',
+    [ValidateSet('clear', 'single-cube', 'grid-100', 'sunset-ocean')]
+    [string]$Scene = 'grid-100',
     [string]$OutputPath = '',
     [ValidateRange(1, 3600)][int]$TimeoutSeconds = 180,
     [switch]$SkipInstall,
@@ -99,7 +101,7 @@ if (-not $SkipInstall) { Device @('install','-r',$apk) | Out-Null }
 Device @('shell','setprop','debug.openxrvulkanlab.validation','off') | Out-Null
 Device @('shell','setprop','debug.openxrvulkanlab.mode',$Mode) | Out-Null
 Device @('shell','setprop','debug.openxrvulkanlab.foveation',$Foveation) | Out-Null
-Device @('shell','setprop','debug.openxrvulkanlab.scene','grid-100') | Out-Null
+Device @('shell','setprop','debug.openxrvulkanlab.scene',$Scene) | Out-Null
 Device @('logcat','-c') | Out-Null
 Device @('shell','am','force-stop','dev.niyy.openxrvulkanlab') | Out-Null
 try {
@@ -119,18 +121,18 @@ try {
         $wrongFoveation = [bool]($log | Select-String 'Benchmark config: ') -and
             -not [bool]($log | Select-String "foveation=$Foveation")
         $wrongScene = [bool]($log | Select-String 'Benchmark config: ') -and
-            -not [bool]($log | Select-String 'Benchmark config: .* scene=grid-100')
+            -not [bool]($log | Select-String "Benchmark config: .* scene=$([regex]::Escape($Scene))")
         $wrongValidation = [bool]($log | Select-String 'Vulkan validation: requested=') -and
             -not [bool]($log | Select-String 'Vulkan validation: requested=off selected=off layer=none')
     } until ($complete -or $wrongMode -or $wrongFoveation -or $wrongScene -or $wrongValidation -or (Get-Date) -ge $deadline)
 
     $selected = [bool]($log | Select-String "Benchmark config: $Mode ")
     $foveationSelected = [bool]($log | Select-String "Benchmark config: .* foveation=$Foveation")
-    $sceneSelected = [bool]($log | Select-String 'Benchmark config: .* scene=grid-100') -and
-        [bool]($log | Select-String 'Benchmark complete: .* scene=grid-100')
+    $sceneSelected = [bool]($log | Select-String "Benchmark config: .* scene=$([regex]::Escape($Scene))") -and
+        [bool]($log | Select-String "Benchmark complete: .* scene=$([regex]::Escape($Scene))")
     $validationOff = [bool]($log | Select-String 'Vulkan validation: requested=off selected=off layer=none')
     Check-ExternalValidation
-    Add-Section 'Measurement' @("finished=$(Get-Date -Format o)", "requested_mode=$Mode", "selected_mode_matched=$selected", "requested_foveation=$Foveation", "selected_foveation_matched=$foveationSelected", 'requested_scene=grid-100', "selected_scene_matched=$sceneSelected", 'validation_requested=off', "validation_off_confirmed=$validationOff", "complete=$complete")
+    Add-Section 'Measurement' @("finished=$(Get-Date -Format o)", "requested_mode=$Mode", "selected_mode_matched=$selected", "requested_foveation=$Foveation", "selected_foveation_matched=$foveationSelected", "requested_scene=$Scene", "selected_scene_matched=$sceneSelected", 'validation_requested=off', "validation_off_confirmed=$validationOff", "complete=$complete")
     Add-Section 'Application log' $log
     Add-Section 'Thermal after' (Device @('shell','dumpsys','thermalservice'))
     $lines | Set-Content -LiteralPath $destination -Encoding utf8
